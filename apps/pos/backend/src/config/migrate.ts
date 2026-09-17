@@ -1,12 +1,44 @@
+import fs from 'fs';
+import path from 'path';
 import { query } from './database';
+
+// A genuinely empty database (no `users` table at all) needs the full base
+// schema applied first — the incremental alterations below all assume their
+// target tables already exist. Electron's installer does this itself before
+// ever starting the backend (see main.js's own runMigrations); a
+// self-hosted/web deploy has no such separate first-run step, so the
+// backend does it here instead, once, before its own incremental catch-up.
+async function bootstrapFreshDatabase(): Promise<void> {
+  const check = await query(
+    `SELECT EXISTS (
+       SELECT FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'users'
+     )`,
+    []
+  );
+  if (check.rows[0].exists) return;
+
+  // dist/config/migrate.js -> up to apps/pos/backend/dist -> up to repo root.
+  const schemaPath = path.join(__dirname, '..', '..', '..', '..', '..', 'database', 'schema.sql');
+  if (!fs.existsSync(schemaPath)) {
+    console.warn('[migrate] Fresh database, but database/schema.sql not found at', schemaPath, '— nothing applied.');
+    return;
+  }
+  console.log('[migrate] Fresh database detected — applying database/schema.sql...');
+  // No params argument: node-postgres only allows a multi-statement string
+  // (this whole file, semicolon-separated) over the simple query protocol,
+  // which is what omitting `values` selects — passing even an empty params
+  // array switches to the extended protocol and rejects multiple statements.
+  await query(fs.readFileSync(schemaPath, 'utf8'));
+  console.log('[migrate] Base schema applied.');
+}
 
 // Incremental schema catch-up for an existing `public` database — safe to
 // run on every startup (every statement is idempotent: `IF NOT EXISTS` /
-// `ADD COLUMN IF NOT EXISTS`). A brand-new install already gets the full,
-// up-to-date shape straight from database/schema.sql, so this only ever
-// matters for an install that's been running since before some of these
-// columns/tables existed.
+// `ADD COLUMN IF NOT EXISTS`).
 export const runMigrations = async (): Promise<void> => {
+  await bootstrapFreshDatabase();
+
   const alterations = [
     `ALTER TABLE products ADD COLUMN IF NOT EXISTS name_en VARCHAR(255)`,
     `CREATE TABLE IF NOT EXISTS sale_returns (

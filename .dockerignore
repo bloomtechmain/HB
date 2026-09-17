@@ -1,0 +1,14 @@
+.git
+node_modules
+apps/pos/backend/node_modules
+apps/pos/backend/dist
+apps/pos/frontend/node_modules
+apps/pos/frontend/dist
+apps/pos/electron
+apps/print-agent
+build-assets/_tmp_ico
+dist-electron
+downloads
+pgdata
+.claude
+*.md

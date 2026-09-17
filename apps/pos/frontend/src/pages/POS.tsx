@@ -923,6 +923,7 @@ function ProductGrid({ onPick }: { onPick: (p: Product) => void }) {
 }
 
 const round3 = (v: number) => Math.round(v * 1000) / 1000;
+const round2 = (v: number) => Math.round(v * 100) / 100;
 
 // ─── Add-to-Cart Modal — pops up on every deliberate product selection (grid
 // tile or search pick), never on a barcode scan, so a cashier sets the exact
@@ -974,47 +975,28 @@ function AddToCartModal({ product, batch, onClose, onConfirm }: {
   const qty = parseFloat(qtyText) || 0;
   const baseQty = convertToBaseUnit(qty, unit, product.unit_type);
   const normalPrice = batch?.sellingPrice ?? product.selling_price;
-  const customPrice = canOverridePrice && priceText.trim() !== '' ? parseFloat(priceText) : undefined;
-  const effectivePrice = customPrice !== undefined && !isNaN(customPrice) ? customPrice : normalPrice;
-  const lineTotal = Math.max(0, effectivePrice * baseQty);
+  const normalLineTotal = round2(Math.max(0, normalPrice * baseQty));
+  // The field is what the whole line should cost — not a per-unit rate —
+  // so "500g of butter, charge 1100" is one number, not a per-kg conversion.
+  const customTotalRaw = canOverridePrice && priceText.trim() !== '' ? parseFloat(priceText) : undefined;
+  const customTotal = customTotalRaw !== undefined && !isNaN(customTotalRaw) ? Math.max(0, round2(customTotalRaw)) : undefined;
+  const lineTotal = customTotal !== undefined ? customTotal : normalLineTotal;
+  // What actually gets stored per unit — derived from the typed total divided
+  // by quantity, so reporting/receipts still carry a normal unit_price.
+  const finalUnitPrice = customTotal !== undefined && baseQty > 0 ? round2(customTotal / baseQty) : undefined;
 
   const confirm = () => {
     if (baseQty <= 0) return;
-    onConfirm(product, baseQty, customPrice !== undefined && !isNaN(customPrice) ? Math.max(0, customPrice) : undefined);
+    onConfirm(product, baseQty, finalUnitPrice);
   };
 
   return (
     <Modal isOpen={!!product} onClose={onClose} title={product.name} size="sm">
       <div className="space-y-4">
-        {canOverridePrice ? (
-          <div>
-            <label className="label flex items-center justify-between">
-              <span>Price{batch ? ` (${batch.label})` : ''} <span className="text-surface-400 font-normal">— F4</span></span>
-              {customPrice !== undefined && (
-                <button type="button" onClick={() => setPriceText('')} className="text-xs text-primary-600 hover:text-primary-800 font-medium">
-                  Reset to {fmt(normalPrice)}
-                </button>
-              )}
-            </label>
-            <input
-              ref={priceRef}
-              type="number"
-              value={priceText}
-              onChange={(e) => setPriceText(e.target.value)}
-              onFocus={(e) => e.target.select()}
-              onKeyDown={(e) => { if (e.key === 'Enter') confirm(); }}
-              placeholder={String(normalPrice)}
-              className="input-lg font-mono text-right border-primary-200 focus:border-primary-400 text-primary-700"
-              min="0"
-              step="0.01"
-            />
-          </div>
-        ) : (
-          <div className="flex items-center justify-between bg-surface-50 rounded-lg px-3 py-2">
-            <span className="text-sm text-surface-500">Price{batch ? ` (${batch.label})` : ''}</span>
-            <span className="font-bold text-primary-600">{fmt(effectivePrice)} / {getUnitMeta(product.unit_type).abbr}</span>
-          </div>
-        )}
+        <div className="flex items-center justify-between bg-surface-50 rounded-lg px-3 py-2">
+          <span className="text-sm text-surface-500">Price{batch ? ` (${batch.label})` : ''}</span>
+          <span className="font-bold text-primary-600">{fmt(normalPrice)} / {getUnitMeta(product.unit_type).abbr}</span>
+        </div>
 
         <div>
           <label className="label">Quantity</label>
@@ -1055,10 +1037,38 @@ function AddToCartModal({ product, batch, onClose, onConfirm }: {
           </div>
         </div>
 
-        <div className="flex items-center justify-between pt-2 border-t border-surface-100">
-          <span className="text-sm font-semibold text-surface-700">Line Total</span>
-          <span className="text-xl font-black text-surface-900 font-mono">{fmt(lineTotal)}</span>
-        </div>
+        {canOverridePrice ? (
+          <div className="pt-2 border-t border-surface-100">
+            <label className="label flex items-center justify-between">
+              <span>Line Total <span className="text-surface-400 font-normal">— F4 to edit</span></span>
+              {customTotal !== undefined && (
+                <button type="button" onClick={() => setPriceText('')} className="text-xs text-primary-600 hover:text-primary-800 font-medium">
+                  Reset to {fmt(normalLineTotal)}
+                </button>
+              )}
+            </label>
+            <input
+              ref={priceRef}
+              type="number"
+              value={priceText}
+              onChange={(e) => setPriceText(e.target.value)}
+              onFocus={(e) => e.target.select()}
+              onKeyDown={(e) => { if (e.key === 'Enter') confirm(); }}
+              placeholder={String(normalLineTotal)}
+              className="input-lg font-mono text-right border-primary-200 focus:border-primary-400 text-primary-700 text-xl font-black"
+              min="0"
+              step="0.01"
+            />
+            {finalUnitPrice !== undefined && (
+              <p className="text-xs text-surface-400 mt-1 text-right">= {fmt(finalUnitPrice)} / {getUnitMeta(product.unit_type).abbr}</p>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center justify-between pt-2 border-t border-surface-100">
+            <span className="text-sm font-semibold text-surface-700">Line Total</span>
+            <span className="text-xl font-black text-surface-900 font-mono">{fmt(lineTotal)}</span>
+          </div>
+        )}
 
         <button onClick={confirm} disabled={baseQty <= 0} className="btn-success w-full py-3 text-base font-bold disabled:opacity-40">
           Add to Cart
