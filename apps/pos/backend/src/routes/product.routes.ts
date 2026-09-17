@@ -1,0 +1,22 @@
+import { Router } from 'express';
+import * as productController from '../controllers/product.controller';
+import { authenticate, requireRole, requirePermission } from '../middleware/auth';
+
+const router = Router();
+
+router.use(authenticate);
+
+router.get('/', productController.list);
+router.get('/low-stock', productController.lowStock);
+router.get('/categories', productController.categories);
+router.post('/categories', requireRole('admin', 'manager'), productController.createCategory);
+router.get('/brands', productController.brands);
+router.get('/barcode/:barcode', productController.getByBarcode);
+router.get('/:id/batches', productController.batches);
+router.get('/:id/cost-history', productController.costHistory);
+router.get('/:id', productController.getById);
+router.post('/', requirePermission('products.create'), productController.create);
+router.put('/:id', requirePermission('products.edit'), productController.update);
+router.delete('/:id', requirePermission('products.delete'), productController.remove);
+
+export default router;

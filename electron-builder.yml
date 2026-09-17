@@ -1,0 +1,61 @@
+appId: com.bloompos.app
+productName: BloomPOS
+copyright: Copyright © 2025 BloomPOS
+
+# Directory config
+directories:
+  output: dist-electron
+  buildResources: build-assets
+
+# Files to include in the package
+files:
+  - apps/pos/electron/**
+  - apps/pos/backend/dist/**
+  - apps/pos/backend/package.json
+  - apps/pos/frontend/dist/**
+  - "!apps/pos/backend/src"
+  - "!apps/pos/frontend/src"
+  - "!**/*.ts"
+  - "!**/*.map"
+
+# Include backend node_modules alongside compiled output
+extraResources:
+  - from: apps/pos/backend/node_modules
+    to: app/apps/pos/backend/node_modules
+    filter:
+      - "**/*"
+      - "!**/*.ts"
+  - from: database/schema.sql
+    to: database/schema.sql
+
+# Disable asar so embedded-postgres can locate its binaries via import.meta.url
+# (ESM modules resolve paths relative to their own URL; asar breaks this)
+asar: false
+
+# Post-pack hook: obfuscates compiled JS in the build output before installer creation.
+# Source files are never modified — only the packaged copy is protected.
+afterPack: scripts/after-pack.js
+
+# Windows installer settings
+win:
+  icon: build-assets/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  requestedExecutionLevel: asInvoker
+
+# NSIS installer wizard settings
+nsis:
+  include: build-assets/installer.nsh
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: BloomPOS
+  runAfterFinish: true
+  perMachine: true
+  deleteAppDataOnUninstall: false
+  installerSidebar: build-assets/installer-sidebar.bmp
+  installerHeader: build-assets/installer-header.bmp

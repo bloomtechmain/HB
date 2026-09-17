@@ -1,0 +1,661 @@
+-- ============================================================
+-- RETAIL POS - PostgreSQL Database Schema
+-- ============================================================
+--
+-- This is the one schema this project ever uses — a FLAT, single-business
+-- database: one `users` table, no tenant concept at all, since every
+-- install (the Electron desktop app or the self-hosted web app) is exactly
+-- one business.
+--
+-- apps/pos/electron/main.js reads and executes this file verbatim against a
+-- fresh local embedded Postgres on first launch; on every subsequent launch
+-- it forks the backend, which runs its own incremental catch-up migrations
+-- from apps/pos/backend/src/config/migrate.ts — keep that file's ALTER/
+-- CREATE list in sync with any column added here.
+
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ============================================================
+-- ROLES & USERS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS roles (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(50) UNIQUE NOT NULL,
+  permissions JSONB DEFAULT '{}',
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password VARCHAR(255) NOT NULL,
+  role_id INTEGER NOT NULL REFERENCES roles(id),
+  pin VARCHAR(10),
+  is_active BOOLEAN DEFAULT TRUE,
+  last_login TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMP
+);
+
+-- ============================================================
+-- CATEGORIES & BRANDS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS categories (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  color VARCHAR(20) DEFAULT '#6366f1',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS brands (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMP
+);
+
+-- ============================================================
+-- TAX RATES (named taxes selectable on VAT invoice lines, e.g. VAT, NBT)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS tax_rates (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  rate DECIMAL(5,2) NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ============================================================
+-- PRODUCTS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS kitchen_stations (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS products (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  name_en VARCHAR(255),
+  barcode VARCHAR(100),
+  sku VARCHAR(100) UNIQUE NOT NULL,
+  description TEXT,
+  selling_price DECIMAL(12,2) NOT NULL,
+  cost_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+  avg_cost DECIMAL(12,4) NOT NULL DEFAULT 0,
+  category_id INTEGER REFERENCES categories(id),
+  brand_id INTEGER REFERENCES brands(id),
+  station_id INTEGER REFERENCES kitchen_stations(id) ON DELETE SET NULL,
+  unit_type VARCHAR(50) DEFAULT 'piece',
+  current_stock DECIMAL(12,3) DEFAULT 0,
+  low_stock_level DECIMAL(12,3) DEFAULT 5,
+  tax_rate DECIMAL(5,2) DEFAULT 0,
+  image_url VARCHAR(500),
+  is_active BOOLEAN DEFAULT TRUE,
+  allow_negative_stock BOOLEAN DEFAULT TRUE,
+  -- NULL until the product's first GRN receipt, when the user chooses
+  -- 'weighted_average' or 'fifo'; sticks for every receipt after that.
+  costing_method VARCHAR(20),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode) WHERE barcode IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
+CREATE INDEX IF NOT EXISTS idx_products_name ON products USING gin(to_tsvector('english', name));
+CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
+
+-- ============================================================
+-- SUPPLIERS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS suppliers (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  contact_person VARCHAR(255),
+  phone VARCHAR(50),
+  email VARCHAR(255),
+  address TEXT,
+  notes TEXT,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMP
+);
+
+-- ============================================================
+-- GRN (GOODS RECEIVED NOTE)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS grn (
+  id SERIAL PRIMARY KEY,
+  grn_number VARCHAR(100) UNIQUE NOT NULL,
+  supplier_id INTEGER REFERENCES suppliers(id),
+  invoice_number VARCHAR(100),
+  received_date DATE NOT NULL,
+  total_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  status VARCHAR(20) DEFAULT 'completed',
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS grn_items (
+  id SERIAL PRIMARY KEY,
+  grn_id INTEGER NOT NULL REFERENCES grn(id) ON DELETE CASCADE,
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  quantity DECIMAL(12,3) NOT NULL,
+  buying_price DECIMAL(12,4) NOT NULL,
+  subtotal DECIMAL(12,2) NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Individual batches for products using FIFO/FEFO costing (costing_method='fifo').
+-- Consumed oldest-first, or nearest-expiry-first when expiry_date is set.
+CREATE TABLE IF NOT EXISTS product_batches (
+  id SERIAL PRIMARY KEY,
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  grn_item_id INTEGER REFERENCES grn_items(id),
+  batch_number VARCHAR(100) NOT NULL,
+  quantity_received DECIMAL(12,3) NOT NULL,
+  quantity_remaining DECIMAL(12,3) NOT NULL,
+  unit_cost DECIMAL(12,4) NOT NULL,
+  expiry_date DATE,
+  received_date DATE NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_grn_supplier ON grn(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_grn_date ON grn(received_date);
+CREATE INDEX IF NOT EXISTS idx_grn_items_product ON grn_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_batches_product ON product_batches(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_batches_grn_item ON product_batches(grn_item_id);
+
+-- ============================================================
+-- STOCK MOVEMENTS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS stock_movements (
+  id SERIAL PRIMARY KEY,
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  movement_type VARCHAR(50) NOT NULL,
+  -- Types: 'grn_in', 'sale_out', 'adjustment_in', 'adjustment_out', 'return_in', 'opening'
+  quantity DECIMAL(12,3) NOT NULL,
+  balance_before DECIMAL(12,3) NOT NULL,
+  balance_after DECIMAL(12,3) NOT NULL,
+  unit_cost DECIMAL(12,4),
+  reference_type VARCHAR(50),
+  reference_id INTEGER,
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_movements_product ON stock_movements(product_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_type ON stock_movements(movement_type);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(created_at);
+
+-- ============================================================
+-- SHIFTS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS shifts (
+  id SERIAL PRIMARY KEY,
+  shift_number VARCHAR(50) UNIQUE NOT NULL,
+  opened_by INTEGER NOT NULL REFERENCES users(id),
+  closed_by INTEGER REFERENCES users(id),
+  open_time TIMESTAMP NOT NULL DEFAULT NOW(),
+  close_time TIMESTAMP,
+  opening_cash DECIMAL(12,2) NOT NULL DEFAULT 0,
+  expected_cash DECIMAL(12,2),
+  actual_cash DECIMAL(12,2),
+  cash_difference DECIMAL(12,2),
+  total_sales DECIMAL(12,2) DEFAULT 0,
+  total_cash_sales DECIMAL(12,2) DEFAULT 0,
+  total_card_sales DECIMAL(12,2) DEFAULT 0,
+  total_transactions INTEGER DEFAULT 0,
+  status VARCHAR(20) DEFAULT 'open',
+  -- Status: 'open', 'closed'
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_shifts_status ON shifts(status);
+CREATE INDEX IF NOT EXISTS idx_shifts_opened_by ON shifts(opened_by);
+
+-- ============================================================
+-- PROMOTIONS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS promotions (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  type VARCHAR(50) NOT NULL,
+  -- Types: 'percentage', 'fixed_amount', 'buy_x_get_y', 'free_item'
+  discount_value DECIMAL(10,4),
+  min_purchase_amount DECIMAL(12,2),
+  min_purchase_qty INTEGER,
+  buy_quantity INTEGER,
+  get_quantity INTEGER,
+  get_product_id INTEGER REFERENCES products(id),
+  applies_to VARCHAR(50) DEFAULT 'all',
+  -- Applies: 'all', 'category', 'product'
+  category_id INTEGER REFERENCES categories(id),
+  product_id INTEGER REFERENCES products(id),
+  start_date DATE,
+  end_date DATE,
+  is_active BOOLEAN DEFAULT TRUE,
+  priority INTEGER DEFAULT 0,
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_promotions_active ON promotions(is_active, start_date, end_date);
+
+CREATE TABLE IF NOT EXISTS coupons (
+  id SERIAL PRIMARY KEY,
+  code VARCHAR(50) UNIQUE NOT NULL,
+  type VARCHAR(20) NOT NULL,
+  -- Types: 'percent', 'fixed'
+  discount_value DECIMAL(10,4) NOT NULL,
+  min_purchase_amount DECIMAL(12,2),
+  max_uses INTEGER,
+  uses_count INTEGER NOT NULL DEFAULT 0,
+  max_uses_per_customer INTEGER,
+  start_date DATE,
+  end_date DATE,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_coupons_code ON coupons(code);
+
+-- Multi-terminal/LAN mode: machines paired to this one as thin-client
+-- "Terminal" tills. Offline (Electron) app only — see terminal.service.ts.
+CREATE TABLE IF NOT EXISTS terminals (
+  id SERIAL PRIMARY KEY,
+  fingerprint VARCHAR(64) UNIQUE NOT NULL,
+  name VARCHAR(255),
+  last_seen_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS tables (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(50) NOT NULL,
+  capacity INTEGER,
+  status VARCHAR(20) NOT NULL DEFAULT 'available',
+  -- Status: 'available', 'occupied', 'reserved'
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMP
+);
+
+-- ============================================================
+-- CUSTOMERS (CREDIT ACCOUNTS)
+-- ============================================================
+
+-- Backs customers.loyalty_code's default below — a plain incrementing
+-- counter, independent of the customers.id sequence so a deleted/re-created
+-- row never reuses a code.
+CREATE SEQUENCE IF NOT EXISTS customers_loyalty_code_seq;
+
+CREATE TABLE IF NOT EXISTS customers (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  phone VARCHAR(50),
+  email VARCHAR(255),
+  address TEXT,
+  credit_limit DECIMAL(12,2),
+  -- NULL = unlimited credit
+  current_balance DECIMAL(12,2) NOT NULL DEFAULT 0,
+  -- Amount currently owed by the customer (increases on credit sales, decreases on payments)
+  notes TEXT,
+  is_active BOOLEAN DEFAULT TRUE,
+  is_vat_customer BOOLEAN NOT NULL DEFAULT FALSE,
+  vat_reg_no VARCHAR(100),
+  -- National ID / passport number, captured at loyalty sign-up for identity
+  -- verification — free text, optional.
+  id_number VARCHAR(50),
+  -- Assigned automatically from customers_loyalty_code_seq at insert time —
+  -- never client-supplied (see customer.service.ts's createCustomer, which
+  -- omits it from the INSERT column list entirely).
+  loyalty_code VARCHAR(20) UNIQUE NOT NULL DEFAULT ('LC-' || LPAD(nextval('customers_loyalty_code_seq')::text, 5, '0')),
+  -- Accumulated cashback the customer can redeem as a discount on a future
+  -- sale (see settings.loyalty_earn_rate_percent for the accrual rate, and
+  -- customer_loyalty_transactions below for the earn/redeem ledger).
+  loyalty_balance DECIMAL(12,2) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
+CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone) WHERE phone IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_customers_balance ON customers(current_balance);
+
+CREATE TABLE IF NOT EXISTS customer_payments (
+  id SERIAL PRIMARY KEY,
+  customer_id INTEGER NOT NULL REFERENCES customers(id),
+  amount DECIMAL(12,2) NOT NULL,
+  payment_method VARCHAR(20) NOT NULL DEFAULT 'cash',
+  -- Methods: 'cash', 'card'
+  notes TEXT,
+  received_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_customer_payments_customer ON customer_payments(customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_payments_date ON customer_payments(created_at);
+
+-- ============================================================
+-- SALES
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS sales (
+  id SERIAL PRIMARY KEY,
+  sale_number VARCHAR(100) UNIQUE NOT NULL,
+  shift_id INTEGER NOT NULL REFERENCES shifts(id),
+  cashier_id INTEGER NOT NULL REFERENCES users(id),
+  subtotal DECIMAL(12,2) NOT NULL,
+  item_discount DECIMAL(12,2) DEFAULT 0,
+  bill_discount DECIMAL(12,2) DEFAULT 0,
+  discount_amount DECIMAL(12,2) DEFAULT 0,
+  tax_amount DECIMAL(12,2) DEFAULT 0,
+  total_amount DECIMAL(12,2) NOT NULL,
+  cost_total DECIMAL(12,2) DEFAULT 0,
+  profit DECIMAL(12,2) DEFAULT 0,
+  payment_method VARCHAR(20) NOT NULL DEFAULT 'cash',
+  -- Methods: 'cash', 'card', 'mixed', 'credit'
+  cash_tendered DECIMAL(12,2) DEFAULT 0,
+  card_amount DECIMAL(12,2) DEFAULT 0,
+  change_amount DECIMAL(12,2) DEFAULT 0,
+  status VARCHAR(20) DEFAULT 'completed',
+  -- Status: 'completed', 'voided', 'refunded', 'held'
+  void_reason TEXT,
+  notes TEXT,
+  customer_name VARCHAR(255),
+  customer_id INTEGER REFERENCES customers(id),
+  coupon_id INTEGER REFERENCES coupons(id),
+  coupon_discount DECIMAL(12,2) DEFAULT 0,
+  table_id INTEGER REFERENCES tables(id),
+  order_type VARCHAR(20) NOT NULL DEFAULT 'retail',
+  -- Types: 'retail', 'dine_in', 'takeaway', 'delivery'
+  kot_printed_at TIMESTAMP,
+  is_vat_invoice BOOLEAN NOT NULL DEFAULT FALSE,
+  vat_invoice_number VARCHAR(50),
+  buyer_vat_reg_no VARCHAR(100),
+  buyer_address TEXT,
+  buyer_phone VARCHAR(50),
+  delivery_date DATE,
+  place_of_supply VARCHAR(255),
+  -- Loyalty cashback accrued on this sale (settings.loyalty_earn_rate_percent
+  -- of total_amount) and/or redeemed as a discount against it — see
+  -- customer_loyalty_transactions for the per-customer ledger these total.
+  loyalty_earned DECIMAL(12,2) NOT NULL DEFAULT 0,
+  loyalty_redeemed DECIMAL(12,2) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sales_table ON sales(table_id) WHERE table_id IS NOT NULL;
+
+-- Earn/redeem ledger backing customers.loyalty_balance — one row per accrual
+-- or redemption, plus reversal rows when the originating sale is voided or
+-- refunded. amount is signed: positive increases loyalty_balance (earn,
+-- redeem_reversal), negative decreases it (redeem, earn_reversal).
+CREATE TABLE IF NOT EXISTS customer_loyalty_transactions (
+  id SERIAL PRIMARY KEY,
+  customer_id INTEGER NOT NULL REFERENCES customers(id),
+  sale_id INTEGER REFERENCES sales(id),
+  type VARCHAR(20) NOT NULL,
+  -- Types: 'earn', 'redeem', 'earn_reversal', 'redeem_reversal'
+  amount DECIMAL(12,2) NOT NULL,
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_customer_loyalty_tx_customer ON customer_loyalty_transactions(customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_loyalty_tx_sale ON customer_loyalty_transactions(sale_id) WHERE sale_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS sale_items (
+  id SERIAL PRIMARY KEY,
+  sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  product_name VARCHAR(255) NOT NULL,
+  barcode VARCHAR(100),
+  quantity DECIMAL(12,3) NOT NULL,
+  unit_price DECIMAL(12,2) NOT NULL,
+  original_price DECIMAL(12,2) NOT NULL,
+  cost_price DECIMAL(12,4) NOT NULL DEFAULT 0,
+  item_discount DECIMAL(12,2) DEFAULT 0,
+  tax_rate DECIMAL(5,2) DEFAULT 0,
+  tax_amount DECIMAL(12,2) DEFAULT 0,
+  subtotal DECIMAL(12,2) NOT NULL,
+  promotion_id INTEGER REFERENCES promotions(id),
+  kot_sent_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Itemized tax breakdown for a sale_items row — a VAT invoice line can carry
+-- more than one named tax (e.g. VAT + NBT) stacked on the same taxable
+-- amount; sale_items.tax_rate/tax_amount keep holding the combined total so
+-- every existing report/profit calculation is unaffected. Name/rate are
+-- snapshotted here (not just tax_rate_id) so a historical invoice never
+-- changes if the tax_rates registry is edited or a rate is deleted later.
+CREATE TABLE IF NOT EXISTS sale_item_taxes (
+  id SERIAL PRIMARY KEY,
+  sale_item_id INTEGER NOT NULL REFERENCES sale_items(id) ON DELETE CASCADE,
+  tax_rate_id INTEGER REFERENCES tax_rates(id),
+  tax_name VARCHAR(100) NOT NULL,
+  tax_rate DECIMAL(5,2) NOT NULL,
+  tax_amount DECIMAL(12,2) NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sale_item_taxes_item ON sale_item_taxes(sale_item_id);
+
+CREATE INDEX IF NOT EXISTS idx_sales_shift ON sales(shift_id);
+CREATE INDEX IF NOT EXISTS idx_sales_cashier ON sales(cashier_id);
+CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(created_at);
+CREATE INDEX IF NOT EXISTS idx_sales_status ON sales(status);
+CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_id) WHERE customer_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id);
+CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);
+
+-- ============================================================
+-- SALE RETURNS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS sale_returns (
+  id SERIAL PRIMARY KEY,
+  return_number VARCHAR(100) UNIQUE NOT NULL,
+  sale_id INTEGER NOT NULL REFERENCES sales(id),
+  shift_id INTEGER NOT NULL REFERENCES shifts(id),
+  processed_by INTEGER NOT NULL REFERENCES users(id),
+  return_reason TEXT,
+  refund_method VARCHAR(20) NOT NULL DEFAULT 'cash',
+  total_refund_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS sale_return_items (
+  id SERIAL PRIMARY KEY,
+  return_id INTEGER NOT NULL REFERENCES sale_returns(id) ON DELETE CASCADE,
+  sale_item_id INTEGER NOT NULL REFERENCES sale_items(id),
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  product_name VARCHAR(255) NOT NULL,
+  quantity DECIMAL(12,3) NOT NULL,
+  unit_price DECIMAL(12,2) NOT NULL,
+  cost_price DECIMAL(12,4) NOT NULL,
+  refund_subtotal DECIMAL(12,2) NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sale_returns_sale ON sale_returns(sale_id);
+CREATE INDEX IF NOT EXISTS idx_sale_returns_shift ON sale_returns(shift_id);
+CREATE INDEX IF NOT EXISTS idx_sale_return_items_ret ON sale_return_items(return_id);
+CREATE INDEX IF NOT EXISTS idx_sale_return_items_si ON sale_return_items(sale_item_id);
+
+-- ============================================================
+-- INVENTORY ADJUSTMENTS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS inventory_adjustments (
+  id SERIAL PRIMARY KEY,
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  adjustment_type VARCHAR(30) NOT NULL,
+  -- Types: 'add', 'subtract', 'set'
+  quantity DECIMAL(12,3) NOT NULL,
+  quantity_before DECIMAL(12,3) NOT NULL,
+  quantity_after DECIMAL(12,3) NOT NULL,
+  reason VARCHAR(255),
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ============================================================
+-- SETTINGS (singleton — business profile / branding / currency)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS settings (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  business_name VARCHAR(255) NOT NULL DEFAULT 'My Business',
+  business_type VARCHAR(100) DEFAULT '',
+  logo_data_url TEXT,
+  address TEXT,
+  phone VARCHAR(50),
+  email VARCHAR(255),
+  currency_code VARCHAR(10) NOT NULL DEFAULT 'USD',
+  currency_symbol VARCHAR(10) NOT NULL DEFAULT '$',
+  vat_registration_number VARCHAR(100),
+  plan_key VARCHAR(20) NOT NULL DEFAULT 'basic',
+  -- Explicit FeatureKey[] override, set by a marketing agent customizing
+  -- this install's package beyond its plan defaults at license activation
+  -- (see requireFeature / planIncludes in data/plans.ts). NULL = use the
+  -- plan's default features.
+  custom_features JSONB,
+  setup_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Mutually exclusive with plain retail checkout — see POS.tsx.
+  restaurant_mode_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Cashback loyalty program: every sale tagged to a customer accrues
+  -- loyalty_earn_rate_percent of its total as redeemable balance (see
+  -- customers.loyalty_balance / customer_loyalty_transactions). The rate is
+  -- admin-editable in Settings at any time, not a fixed constant.
+  loyalty_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  loyalty_earn_rate_percent DECIMAL(6,3) NOT NULL DEFAULT 0.025,
+  -- Auto-send a text receipt over WhatsApp after checkout, via an embedded
+  -- connection this business links by scanning a QR code (see
+  -- whatsapp.service.ts) — no official WhatsApp Business API involved.
+  -- whatsapp_country_code substitutes for a customer phone's leading 0 when
+  -- normalizing to WhatsApp's international-digits-only JID format.
+  whatsapp_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  whatsapp_country_code VARCHAR(5),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  CONSTRAINT settings_singleton CHECK (id = 1)
+);
+
+-- ============================================================
+-- VAT INVOICE NUMBERING (singleton counter — strictly sequential, no gaps;
+-- incremented under a row lock inside the same transaction as the sale
+-- insert, so a rolled-back sale never consumes a number)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS vat_invoice_counter (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  next_number INTEGER NOT NULL DEFAULT 1,
+  CONSTRAINT vat_invoice_counter_singleton CHECK (id = 1)
+);
+
+INSERT INTO vat_invoice_counter (id, next_number) VALUES (1, 1) ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================
+-- SEED DATA
+-- ============================================================
+
+-- Insert default roles
+INSERT INTO roles (name, permissions) VALUES
+('admin', '{
+  "dashboard": true,
+  "pos": true,
+  "products": {"view": true, "create": true, "edit": true, "delete": true},
+  "inventory": {"view": true, "adjust": true},
+  "grn": {"view": true, "create": true, "edit": true},
+  "promotions": {"view": true, "create": true, "edit": true, "delete": true},
+  "reports": true,
+  "shifts": true,
+  "users": {"view": true, "create": true, "edit": true, "delete": true},
+  "price_override": true
+}'),
+('manager', '{
+  "dashboard": true,
+  "pos": true,
+  "products": {"view": true, "create": true, "edit": true, "delete": false},
+  "inventory": {"view": true, "adjust": true},
+  "grn": {"view": true, "create": true, "edit": true},
+  "promotions": {"view": true, "create": true, "edit": true, "delete": false},
+  "reports": true,
+  "shifts": true,
+  "users": {"view": true, "create": false, "edit": false, "delete": false},
+  "price_override": true
+}'),
+('cashier', '{
+  "dashboard": false,
+  "pos": true,
+  "products": {"view": true, "create": false, "edit": false, "delete": false},
+  "inventory": {"view": false, "adjust": false},
+  "grn": {"view": false, "create": false, "edit": false},
+  "promotions": {"view": false, "create": false, "edit": false, "delete": false},
+  "reports": false,
+  "shifts": true,
+  "users": {"view": false, "create": false, "edit": false, "delete": false},
+  "price_override": false
+}')
+ON CONFLICT (name) DO NOTHING;
+
+-- Insert default admin user (password: admin123)
+INSERT INTO users (name, email, password, role_id, pin)
+SELECT 'Admin User', 'admin@retailpos.com',
+  '$2a$10$3OL4r2TIxSn.3hEl7HCOR.Gj5w2ANxIbtJXU910TlLH5m1eoHFn/6',
+  r.id, '1234'
+FROM roles r WHERE r.name = 'admin'
+ON CONFLICT (email) DO NOTHING;
+
+-- Insert default categories
+INSERT INTO categories (name, color) VALUES
+('General', '#6366f1'),
+('Food & Beverage', '#f59e0b'),
+('Electronics', '#3b82f6'),
+('Clothing', '#ec4899'),
+('Health & Beauty', '#10b981'),
+('Home & Office', '#8b5cf6')
+ON CONFLICT DO NOTHING;
+
+-- Insert default settings row (singleton)
+INSERT INTO settings (id, business_name, currency_code, currency_symbol, setup_completed)
+VALUES (1, 'My Business', 'USD', '$', FALSE)
+ON CONFLICT (id) DO NOTHING;

@@ -1,0 +1,263 @@
+import { query } from './database';
+
+// Incremental schema catch-up for an existing `public` database — safe to
+// run on every startup (every statement is idempotent: `IF NOT EXISTS` /
+// `ADD COLUMN IF NOT EXISTS`). A brand-new install already gets the full,
+// up-to-date shape straight from database/schema.sql, so this only ever
+// matters for an install that's been running since before some of these
+// columns/tables existed.
+export const runMigrations = async (): Promise<void> => {
+  const alterations = [
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS name_en VARCHAR(255)`,
+    `CREATE TABLE IF NOT EXISTS sale_returns (
+      id SERIAL PRIMARY KEY,
+      return_number VARCHAR(100) UNIQUE NOT NULL,
+      sale_id INTEGER NOT NULL REFERENCES sales(id),
+      shift_id INTEGER NOT NULL REFERENCES shifts(id),
+      processed_by INTEGER NOT NULL REFERENCES users(id),
+      return_reason TEXT,
+      refund_method VARCHAR(20) NOT NULL DEFAULT 'cash',
+      total_refund_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+      notes TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS sale_return_items (
+      id SERIAL PRIMARY KEY,
+      return_id INTEGER NOT NULL REFERENCES sale_returns(id) ON DELETE CASCADE,
+      sale_item_id INTEGER NOT NULL REFERENCES sale_items(id),
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      product_name VARCHAR(255) NOT NULL,
+      quantity DECIMAL(12,3) NOT NULL,
+      unit_price DECIMAL(12,2) NOT NULL,
+      cost_price DECIMAL(12,4) NOT NULL,
+      refund_subtotal DECIMAL(12,2) NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_sale_returns_sale ON sale_returns(sale_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_sale_returns_shift ON sale_returns(shift_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_sale_return_items_ret ON sale_return_items(return_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_sale_return_items_si ON sale_return_items(sale_item_id)`,
+    `CREATE TABLE IF NOT EXISTS grn_returns (
+      id SERIAL PRIMARY KEY,
+      return_number VARCHAR(100) UNIQUE NOT NULL,
+      grn_id INTEGER NOT NULL REFERENCES grn(id),
+      notes TEXT,
+      total_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS grn_return_items (
+      id SERIAL PRIMARY KEY,
+      grn_return_id INTEGER NOT NULL REFERENCES grn_returns(id) ON DELETE CASCADE,
+      grn_item_id INTEGER NOT NULL REFERENCES grn_items(id),
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      quantity DECIMAL(12,3) NOT NULL,
+      buying_price DECIMAL(12,4) NOT NULL,
+      subtotal DECIMAL(12,2) NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_grn_returns_grn ON grn_returns(grn_id)`,
+    `CREATE TABLE IF NOT EXISTS customers (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      phone VARCHAR(50),
+      email VARCHAR(255),
+      address TEXT,
+      credit_limit DECIMAL(12,2),
+      current_balance DECIMAL(12,2) NOT NULL DEFAULT 0,
+      notes TEXT,
+      is_active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      deleted_at TIMESTAMP
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)`,
+    `CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone) WHERE phone IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_customers_balance ON customers(current_balance)`,
+    `CREATE TABLE IF NOT EXISTS customer_payments (
+      id SERIAL PRIMARY KEY,
+      customer_id INTEGER NOT NULL REFERENCES customers(id),
+      amount DECIMAL(12,2) NOT NULL,
+      payment_method VARCHAR(20) NOT NULL DEFAULT 'cash',
+      notes TEXT,
+      received_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_customer_payments_customer ON customer_payments(customer_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_customer_payments_date ON customer_payments(created_at)`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_id INTEGER REFERENCES customers(id)`,
+    `CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_id) WHERE customer_id IS NOT NULL`,
+    `CREATE TABLE IF NOT EXISTS settings (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      business_name VARCHAR(255) NOT NULL DEFAULT 'My Business',
+      business_type VARCHAR(100) DEFAULT '',
+      logo_data_url TEXT,
+      address TEXT,
+      phone VARCHAR(50),
+      email VARCHAR(255),
+      currency_code VARCHAR(10) NOT NULL DEFAULT 'USD',
+      currency_symbol VARCHAR(10) NOT NULL DEFAULT '$',
+      setup_completed BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT settings_singleton CHECK (id = 1)
+    )`,
+    `INSERT INTO settings (id, business_name, currency_code, currency_symbol, setup_completed)
+     VALUES (1, 'My Business', 'USD', '$', FALSE) ON CONFLICT (id) DO NOTHING`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS costing_method VARCHAR(20)`,
+    `CREATE TABLE IF NOT EXISTS product_batches (
+      id SERIAL PRIMARY KEY,
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      grn_item_id INTEGER REFERENCES grn_items(id),
+      batch_number VARCHAR(100) NOT NULL,
+      quantity_received DECIMAL(12,3) NOT NULL,
+      quantity_remaining DECIMAL(12,3) NOT NULL,
+      unit_cost DECIMAL(12,4) NOT NULL,
+      selling_price DECIMAL(12,2),
+      expiry_date DATE,
+      received_date DATE NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_product_batches_product ON product_batches(product_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_product_batches_grn_item ON product_batches(grn_item_id)`,
+    // Existing installs created this table before selling_price existed.
+    `ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS selling_price DECIMAL(12,2)`,
+    // Traceability: which batch a sale line was actually fulfilled from,
+    // when the cashier explicitly picked one (NULL when FIFO auto-picked
+    // across possibly-multiple batches, same as before this existed).
+    `ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS batch_id INTEGER REFERENCES product_batches(id)`,
+    `CREATE TABLE IF NOT EXISTS tax_rates (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      rate DECIMAL(5,2) NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS is_vat_invoice BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS vat_invoice_number VARCHAR(50)`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS buyer_vat_reg_no VARCHAR(100)`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS buyer_address TEXT`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS buyer_phone VARCHAR(50)`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS delivery_date DATE`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS place_of_supply VARCHAR(255)`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS additional_info TEXT`,
+    `CREATE TABLE IF NOT EXISTS sale_item_taxes (
+      id SERIAL PRIMARY KEY,
+      sale_item_id INTEGER NOT NULL REFERENCES sale_items(id) ON DELETE CASCADE,
+      tax_rate_id INTEGER REFERENCES tax_rates(id),
+      tax_name VARCHAR(100) NOT NULL,
+      tax_rate DECIMAL(5,2) NOT NULL,
+      tax_amount DECIMAL(12,2) NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_sale_item_taxes_item ON sale_item_taxes(sale_item_id)`,
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS vat_registration_number VARCHAR(100)`,
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS default_invoice_note TEXT`,
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS plan_key VARCHAR(20) NOT NULL DEFAULT 'basic'`,
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS custom_features JSONB`,
+    `CREATE TABLE IF NOT EXISTS vat_invoice_counter (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      next_number INTEGER NOT NULL DEFAULT 1,
+      CONSTRAINT vat_invoice_counter_singleton CHECK (id = 1)
+    )`,
+    `INSERT INTO vat_invoice_counter (id, next_number) VALUES (1, 1) ON CONFLICT (id) DO NOTHING`,
+    `CREATE TABLE IF NOT EXISTS coupons (
+      id SERIAL PRIMARY KEY,
+      code VARCHAR(50) UNIQUE NOT NULL,
+      type VARCHAR(20) NOT NULL,
+      discount_value DECIMAL(10,4) NOT NULL,
+      min_purchase_amount DECIMAL(12,2),
+      max_uses INTEGER,
+      uses_count INTEGER NOT NULL DEFAULT 0,
+      max_uses_per_customer INTEGER,
+      start_date DATE,
+      end_date DATE,
+      is_active BOOLEAN DEFAULT TRUE,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_coupons_code ON coupons(code)`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS coupon_id INTEGER REFERENCES coupons(id)`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS coupon_discount DECIMAL(12,2) DEFAULT 0`,
+    // Groups a bulk-generated batch of single-use codes (e.g. "50 codes
+    // for the Diwali Sale") for the admin's own filtering — never read by
+    // redemption logic, which only ever looks at one coupon row at a time.
+    `ALTER TABLE coupons ADD COLUMN IF NOT EXISTS batch_label VARCHAR(100)`,
+    `CREATE TABLE IF NOT EXISTS kitchen_stations (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      is_active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS station_id INTEGER REFERENCES kitchen_stations(id) ON DELETE SET NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_products_station ON products(station_id) WHERE station_id IS NOT NULL`,
+    `CREATE TABLE IF NOT EXISTS tables (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(50) NOT NULL,
+      capacity INTEGER,
+      status VARCHAR(20) NOT NULL DEFAULT 'available',
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      deleted_at TIMESTAMP
+    )`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS table_id INTEGER REFERENCES tables(id)`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS order_type VARCHAR(20) NOT NULL DEFAULT 'retail'`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS kot_printed_at TIMESTAMP`,
+    `CREATE INDEX IF NOT EXISTS idx_sales_table ON sales(table_id) WHERE table_id IS NOT NULL`,
+    `ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS kot_sent_at TIMESTAMP`,
+    `CREATE TABLE IF NOT EXISTS terminals (
+      id SERIAL PRIMARY KEY,
+      fingerprint VARCHAR(64) UNIQUE NOT NULL,
+      name VARCHAR(255),
+      last_seen_at TIMESTAMP DEFAULT NOW(),
+      created_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS restaurant_mode_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_vat_customer BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE customers ADD COLUMN IF NOT EXISTS vat_reg_no VARCHAR(100)`,
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_schedule_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_schedule_frequency VARCHAR(10) NOT NULL DEFAULT 'daily'`,
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_schedule_time VARCHAR(5) NOT NULL DEFAULT '23:00'`,
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_schedule_day_of_week INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_schedule_day_of_month INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_last_run_at TIMESTAMP`,
+    // Loyalty customer capture at checkout: a manual ID number plus an
+    // auto-assigned loyalty code (see database/schema.sql's customers table).
+    `CREATE SEQUENCE IF NOT EXISTS customers_loyalty_code_seq`,
+    `ALTER TABLE customers ADD COLUMN IF NOT EXISTS id_number VARCHAR(50)`,
+    `ALTER TABLE customers ADD COLUMN IF NOT EXISTS loyalty_code VARCHAR(20) DEFAULT ('LC-' || LPAD(nextval('customers_loyalty_code_seq')::text, 5, '0'))`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_loyalty_code ON customers(loyalty_code)`,
+    `ALTER TABLE customers ALTER COLUMN loyalty_code SET NOT NULL`,
+    // Cashback loyalty program — see database/schema.sql for the full column
+    // comments (settings.loyalty_enabled / loyalty_earn_rate_percent,
+    // customers.loyalty_balance, sales.loyalty_earned/loyalty_redeemed,
+    // customer_loyalty_transactions ledger).
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS loyalty_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS loyalty_earn_rate_percent DECIMAL(6,3) NOT NULL DEFAULT 0.025`,
+    `ALTER TABLE customers ADD COLUMN IF NOT EXISTS loyalty_balance DECIMAL(12,2) NOT NULL DEFAULT 0`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS loyalty_earned DECIMAL(12,2) NOT NULL DEFAULT 0`,
+    `ALTER TABLE sales ADD COLUMN IF NOT EXISTS loyalty_redeemed DECIMAL(12,2) NOT NULL DEFAULT 0`,
+    `CREATE TABLE IF NOT EXISTS customer_loyalty_transactions (
+      id SERIAL PRIMARY KEY,
+      customer_id INTEGER NOT NULL REFERENCES customers(id),
+      sale_id INTEGER REFERENCES sales(id),
+      type VARCHAR(20) NOT NULL,
+      amount DECIMAL(12,2) NOT NULL,
+      notes TEXT,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_customer_loyalty_tx_customer ON customer_loyalty_transactions(customer_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_customer_loyalty_tx_sale ON customer_loyalty_transactions(sale_id) WHERE sale_id IS NOT NULL`,
+    // Embedded WhatsApp receipt auto-send — see database/schema.sql's column
+    // comments and whatsapp.service.ts.
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS whatsapp_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS whatsapp_country_code VARCHAR(5)`,
+  ];
+
+  for (const sql of alterations) {
+    await query(sql, []);
+  }
+  console.log('[migrate] Incremental migrations done.');
+};

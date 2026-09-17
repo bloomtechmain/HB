@@ -1,0 +1,94 @@
+import { Response, NextFunction } from 'express';
+import * as salesService from '../services/sales.service';
+import { sendReceiptForSale } from '../services/whatsapp.service';
+import { AuthRequest } from '../middleware/auth';
+
+export const create = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const canOverridePrice = req.user!.permissions?.price_override === true;
+    const sale = await salesService.createSale(req.body, req.user!.id, canOverridePrice);
+    // Fire-and-forget — sendReceiptForSale never throws, and the checkout
+    // response must not wait on a WhatsApp round trip.
+    sendReceiptForSale(sale.id);
+    res.status(201).json({ success: true, data: sale });
+  } catch (err) { next(err); }
+};
+
+export const list = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await salesService.getSales({
+      page: req.query.page ? parseInt(req.query.page as string) : 1,
+      limit: req.query.limit ? parseInt(req.query.limit as string) : 20,
+      date_from: req.query.date_from as string,
+      date_to: req.query.date_to as string,
+      cashier_id: req.query.cashier_id ? parseInt(req.query.cashier_id as string) : undefined,
+      shift_id: req.query.shift_id ? parseInt(req.query.shift_id as string) : undefined,
+      status: req.query.status as string,
+      sale_number: req.query.sale_number as string,
+      table_id: req.query.table_id ? parseInt(req.query.table_id as string) : undefined,
+      order_type: req.query.order_type as string,
+    });
+    res.json({ success: true, ...result });
+  } catch (err) { next(err); }
+};
+
+export const getById = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const sale = await salesService.getSaleById(parseInt(req.params.id));
+    res.json({ success: true, data: sale });
+  } catch (err) { next(err); }
+};
+
+export const voidSale = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const sale = await salesService.voidSale(parseInt(req.params.id), req.body.reason, req.user!.id);
+    res.json({ success: true, data: sale });
+  } catch (err) { next(err); }
+};
+
+export const returnSale = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await salesService.returnSaleItems(parseInt(req.params.id), req.body, req.user!.id);
+    res.status(201).json({ success: true, data: result });
+  } catch (err) { next(err); }
+};
+
+// ─── Restaurant Mode: held-order lifecycle ─────────────────────────────────
+
+export const createHeld = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const canOverridePrice = req.user!.permissions?.price_override === true;
+    const sale = await salesService.createHeldSale(req.body, req.user!.id, canOverridePrice);
+    res.status(201).json({ success: true, data: sale });
+  } catch (err) { next(err); }
+};
+
+export const addItems = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const canOverridePrice = req.user!.permissions?.price_override === true;
+    const sale = await salesService.addItemsToSale(parseInt(req.params.id), req.body.cart_items, req.user!.id, canOverridePrice);
+    res.json({ success: true, data: sale });
+  } catch (err) { next(err); }
+};
+
+export const sendToKitchen = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await salesService.sendToKitchen(parseInt(req.params.id));
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+};
+
+export const completeHeld = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const sale = await salesService.completeHeldSale(parseInt(req.params.id), req.body);
+    sendReceiptForSale(sale.id);
+    res.json({ success: true, data: sale });
+  } catch (err) { next(err); }
+};
+
+export const cancelHeld = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const sale = await salesService.cancelHeldSale(parseInt(req.params.id), req.body.reason, req.user!.id);
+    res.json({ success: true, data: sale });
+  } catch (err) { next(err); }
+};

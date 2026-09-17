@@ -1,0 +1,412 @@
+import { useState, useEffect, useCallback } from 'react';
+import { PageContainer } from '../components/layout/Layout';
+import { PageLoader } from '../components/ui/LoadingSpinner';
+import api from '../services/api';
+import { useT } from '../i18n/translations';
+import { formatCurrency as fmt } from '../utils/formatCurrency';
+import { formatQuantity } from '../utils/units';
+
+const today = new Date().toISOString().slice(0, 10);
+const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+
+type ReportTab = 'sales' | 'products' | 'inventory' | 'cashiers' | 'credit' | 'stock-movements' | 'promotions' | 'price-overrides';
+
+interface PriceOverrideItem {
+  id: number;
+  sale_id: number;
+  sale_number: string;
+  status: string;
+  created_at: string;
+  product_name: string;
+  quantity: number;
+  original_price: number;
+  unit_price: number;
+  total_diff: number;
+  cashier_name: string;
+}
+
+export default function Reports() {
+  const t = useT();
+  const [tab, setTab] = useState<ReportTab>('sales');
+  const [dateFrom, setDateFrom] = useState(firstOfMonth);
+  const [dateTo, setDateTo] = useState(today);
+  const [loading, setLoading] = useState(false);
+  const [salesData, setSalesData] = useState<{ periods: unknown[]; summary: Record<string, number> } | null>(null);
+  const [productsData, setProductsData] = useState<unknown[]>([]);
+  const [inventoryData, setInventoryData] = useState<unknown[]>([]);
+  const [cashiersData, setCashiersData] = useState<unknown[]>([]);
+  const [creditData, setCreditData] = useState<{ customers: unknown[]; summary: Record<string, number> } | null>(null);
+  const [stockMovementsData, setStockMovementsData] = useState<unknown[]>([]);
+  const [promotionsData, setPromotionsData] = useState<{ promotions: unknown[]; coupons: unknown[] }>({ promotions: [], coupons: [] });
+  const [priceOverridesData, setPriceOverridesData] = useState<{ items: PriceOverrideItem[]; summary: { count: number; total_increase: number; total_decrease: number; net_diff: number } } | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      if (tab === 'sales') {
+        const r = await api.get(`/reports/sales?date_from=${dateFrom}&date_to=${dateTo}`);
+        setSalesData(r.data.data);
+      } else if (tab === 'products') {
+        const r = await api.get(`/reports/product-sales?date_from=${dateFrom}&date_to=${dateTo}`);
+        setProductsData(r.data.data);
+      } else if (tab === 'inventory') {
+        const r = await api.get('/reports/inventory');
+        setInventoryData(r.data.data);
+      } else if (tab === 'cashiers') {
+        const r = await api.get(`/reports/cashiers?date_from=${dateFrom}&date_to=${dateTo}`);
+        setCashiersData(r.data.data);
+      } else if (tab === 'credit') {
+        const r = await api.get('/reports/credit');
+        setCreditData(r.data.data);
+      } else if (tab === 'stock-movements') {
+        const r = await api.get(`/reports/stock-movements?date_from=${dateFrom}&date_to=${dateTo}`);
+        setStockMovementsData(r.data.data);
+      } else if (tab === 'promotions') {
+        const r = await api.get(`/reports/promotions?date_from=${dateFrom}&date_to=${dateTo}`);
+        setPromotionsData(r.data.data);
+      } else if (tab === 'price-overrides') {
+        const r = await api.get(`/reports/price-overrides?date_from=${dateFrom}&date_to=${dateTo}`);
+        setPriceOverridesData(r.data.data);
+      }
+    } finally { setLoading(false); }
+  }, [tab, dateFrom, dateTo]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const tabs: Array<{ key: ReportTab; label: string }> = [
+    { key: 'sales', label: t.reports_tab_sales },
+    { key: 'products', label: t.reports_tab_products },
+    { key: 'inventory', label: t.reports_tab_inventory },
+    { key: 'cashiers', label: t.reports_tab_cashiers },
+    { key: 'credit', label: t.reports_tab_credit },
+    { key: 'stock-movements', label: t.reports_tab_stock_movements },
+    { key: 'promotions', label: t.reports_tab_promotions },
+    { key: 'price-overrides', label: t.reports_tab_price_overrides },
+  ];
+
+  return (
+    <PageContainer>
+      <div className="page-header">
+        <h1 className="page-title">{t.reports_title}</h1>
+        <button onClick={() => window.print()} className="btn-secondary btn-sm">
+          🖨️ Print
+        </button>
+      </div>
+
+      {/* Tab Bar */}
+      <div className="flex gap-1 border-b border-surface-200 mb-4">
+        {tabs.map((t) => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              tab === t.key ? 'border-primary-600 text-primary-600' : 'border-transparent text-surface-500 hover:text-surface-700'
+            }`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Date Range (not for inventory / credit) */}
+      {tab !== 'inventory' && tab !== 'credit' && (
+        <div className="flex flex-wrap items-end gap-3 mb-4">
+          <div>
+            <label className="label">{t.reports_from}</label>
+            <input type="date" className="input" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">{t.reports_to}</label>
+            <input type="date" className="input" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          </div>
+          <div className="pt-5">
+            <button onClick={load} className="btn-primary">{t.reports_load}</button>
+          </div>
+        </div>
+      )}
+
+      {loading ? <PageLoader /> : (
+        <>
+          {/* SALES REPORT */}
+          {tab === 'sales' && salesData && (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                {[
+                  [t.reports_total_sales, fmt(salesData.summary?.total_revenue || 0), 'text-primary-600'],
+                  [t.reports_total_profit, fmt(salesData.summary?.total_profit || 0), 'text-emerald-600'],
+                  [t.reports_transactions, salesData.summary?.total_transactions || 0, ''],
+                  [t.reports_cash_sales, fmt(salesData.summary?.total_discounts || 0), 'text-red-600'],
+                ].map(([label, value, color], i) => (
+                  <div key={i} className="stat-card">
+                    <p className="stat-label">{label}</p>
+                    <p className={`stat-value ${color}`}>{value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="card">
+                <table className="table">
+                  <thead><tr><th>{t.reports_col_date}</th><th className="text-right">{t.reports_col_transactions}</th><th className="text-right">{t.reports_col_revenue}</th><th className="text-right">{t.reports_col_profit}</th><th className="text-right">{t.reports_cash_sales}</th></tr></thead>
+                  <tbody>
+                    {(salesData.periods as Array<Record<string, unknown>>).map((row, i) => (
+                      <tr key={i}>
+                        <td>{new Date(String(row.period)).toLocaleDateString()}</td>
+                        <td className="text-right">{String(row.transactions)}</td>
+                        <td className="text-right font-mono font-semibold text-primary-600">{fmt(Number(row.revenue))}</td>
+                        <td className="text-right font-mono text-emerald-600">{fmt(Number(row.profit))}</td>
+                        <td className="text-right font-mono text-red-500">{fmt(Number(row.discounts))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {/* PRODUCT SALES */}
+          {tab === 'products' && (
+            <div className="card">
+              <table className="table">
+                <thead><tr><th>{t.reports_col_product}</th><th>{t.category}</th><th className="text-right">{t.reports_col_qty}</th><th className="text-right">{t.reports_col_revenue}</th><th className="text-right">{t.reports_col_cost}</th><th className="text-right">{t.reports_col_profit}</th></tr></thead>
+                <tbody>
+                  {(productsData as Array<Record<string, unknown>>).map((p, i) => (
+                    <tr key={i}>
+                      <td className="font-medium">{String(p.product_name)}</td>
+                      <td>{String(p.category_name || '—')}</td>
+                      <td className="text-right font-mono">{Number(p.qty_sold).toFixed(2)}</td>
+                      <td className="text-right font-mono text-primary-600">{fmt(Number(p.revenue))}</td>
+                      <td className="text-right font-mono text-surface-500">{fmt(Number(p.cost))}</td>
+                      <td className="text-right font-mono text-emerald-600">{fmt(Number(p.profit))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* INVENTORY */}
+          {tab === 'inventory' && (
+            <div className="card">
+              <div className="px-4 py-3 border-b border-surface-200 flex items-center justify-between">
+                <span className="text-sm font-medium text-surface-700">
+                  Total Stock Value: <span className="font-bold text-primary-600">
+                    {fmt((inventoryData as Array<Record<string, number>>).reduce((s, p) => s + (Number(p.stock_value) || 0), 0))}
+                  </span>
+                </span>
+                <span className="text-sm text-surface-500">{inventoryData.length} products</span>
+              </div>
+              <table className="table">
+                <thead><tr><th>{t.reports_col_product}</th><th>SKU</th><th>{t.category}</th><th className="text-right">{t.reports_col_stock}</th><th className="text-right">{t.inventory_col_avg_cost}</th><th className="text-right">{t.reports_col_stock_value}</th><th>{t.status}</th></tr></thead>
+                <tbody>
+                  {(inventoryData as Array<Record<string, unknown>>).map((p, i) => (
+                    <tr key={i}>
+                      <td className="font-medium">{String(p.name)}</td>
+                      <td className="font-mono text-xs">{String(p.sku)}</td>
+                      <td>{String(p.category_name || '—')}</td>
+                      <td className="text-right font-mono">{formatQuantity(Number(p.current_stock), p.unit_type as string)}</td>
+                      <td className="text-right font-mono">{fmt(Number(p.avg_cost), 4)}</td>
+                      <td className="text-right font-mono font-semibold">{fmt(Number(p.stock_value))}</td>
+                      <td><span className={`badge ${p.is_low_stock ? 'badge-red' : 'badge-green'}`}>{p.is_low_stock ? t.inventory_low_stock : t.inventory_ok}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* CASHIERS */}
+          {tab === 'cashiers' && (
+            <div className="card">
+              <table className="table">
+                <thead><tr><th>{t.reports_col_name}</th><th className="text-right">{t.reports_col_transactions}</th><th className="text-right">{t.reports_col_revenue}</th><th className="text-right">{t.reports_col_profit}</th></tr></thead>
+                <tbody>
+                  {(cashiersData as Array<Record<string, unknown>>).map((c, i) => (
+                    <tr key={i}>
+                      <td className="font-medium">{String(c.cashier_name)}</td>
+                      <td className="text-right">{String(c.transactions)}</td>
+                      <td className="text-right font-mono text-primary-600">{fmt(Number(c.revenue))}</td>
+                      <td className="text-right font-mono text-emerald-600">{fmt(Number(c.profit))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* CREDIT CUSTOMERS */}
+          {tab === 'credit' && creditData && (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                {[
+                  ['Total Outstanding', fmt(Number(creditData.summary?.total_outstanding || 0)), 'text-orange-600'],
+                  ['Customers With Balance', String(creditData.summary?.customers_with_balance || 0), ''],
+                  ['Total Credit Customers', String(creditData.summary?.total_customers || 0), ''],
+                ].map(([label, value, color], i) => (
+                  <div key={i} className="stat-card">
+                    <p className="stat-label">{label}</p>
+                    <p className={`stat-value ${color}`}>{value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="card">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Customer</th>
+                      <th>Phone</th>
+                      <th className="text-right">Credit Limit</th>
+                      <th className="text-right">Outstanding Balance</th>
+                      <th className="text-right">Lifetime Credit Sales</th>
+                      <th>Last Sale</th>
+                      <th>Last Payment</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(creditData.customers as Array<Record<string, unknown>>).length === 0 ? (
+                      <tr><td colSpan={7} className="text-center py-8 text-surface-400">{t.reports_no_data}</td></tr>
+                    ) : (creditData.customers as Array<Record<string, unknown>>).map((c, i) => (
+                      <tr key={i}>
+                        <td className="font-medium">{String(c.name)}</td>
+                        <td className="text-sm">{c.phone ? String(c.phone) : '—'}</td>
+                        <td className="text-right font-mono">{c.credit_limit == null ? 'Unlimited' : fmt(Number(c.credit_limit))}</td>
+                        <td className={`text-right font-mono font-semibold ${Number(c.current_balance) > 0 ? 'text-orange-600' : 'text-surface-500'}`}>
+                          {fmt(Number(c.current_balance))}
+                        </td>
+                        <td className="text-right font-mono text-surface-500">{fmt(Number(c.lifetime_credit_sales))}</td>
+                        <td className="text-sm">{c.last_sale_date ? new Date(String(c.last_sale_date)).toLocaleDateString() : t.never}</td>
+                        <td className="text-sm">{c.last_payment_date ? new Date(String(c.last_payment_date)).toLocaleDateString() : t.never}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {/* STOCK MOVEMENTS */}
+          {tab === 'stock-movements' && (
+            <div className="card">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Date</th><th>{t.reports_col_product}</th><th>Type</th>
+                    <th className="text-right">Qty</th><th className="text-right">Before</th><th className="text-right">After</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(stockMovementsData as Array<Record<string, unknown>>).length === 0 ? (
+                    <tr><td colSpan={6} className="text-center py-8 text-surface-400">{t.reports_no_data}</td></tr>
+                  ) : (stockMovementsData as Array<Record<string, unknown>>).map((m, i) => (
+                    <tr key={i}>
+                      <td className="text-sm">{new Date(String(m.created_at)).toLocaleString()}</td>
+                      <td className="font-medium">{String(m.product_name)}</td>
+                      <td><span className="badge badge-gray">{String(m.movement_type)}</span></td>
+                      <td className="text-right font-mono">{Number(m.quantity).toFixed(2)}</td>
+                      <td className="text-right font-mono text-surface-500">{Number(m.balance_before).toFixed(2)}</td>
+                      <td className="text-right font-mono text-surface-500">{Number(m.balance_after).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* PROMOTIONS & COUPONS USAGE */}
+          {tab === 'promotions' && (
+            <div className="space-y-4">
+              <div className="card">
+                <div className="px-4 py-3 border-b border-surface-200">
+                  <span className="text-sm font-semibold text-surface-700">Promotions</span>
+                </div>
+                <table className="table">
+                  <thead><tr><th>Promotion</th><th className="text-right">Times Used</th><th className="text-right">Total Discount</th></tr></thead>
+                  <tbody>
+                    {(promotionsData.promotions as Array<Record<string, unknown>>).length === 0 ? (
+                      <tr><td colSpan={3} className="text-center py-6 text-surface-400">{t.reports_no_data}</td></tr>
+                    ) : (promotionsData.promotions as Array<Record<string, unknown>>).map((p, i) => (
+                      <tr key={i}>
+                        <td className="font-medium">{String(p.name)}</td>
+                        <td className="text-right font-mono">{String(p.times_used)}</td>
+                        <td className="text-right font-mono text-red-500">{fmt(Number(p.total_discount))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="card">
+                <div className="px-4 py-3 border-b border-surface-200">
+                  <span className="text-sm font-semibold text-surface-700">Coupons</span>
+                </div>
+                <table className="table">
+                  <thead><tr><th>Code</th><th className="text-right">Times Used</th><th className="text-right">Total Discount</th></tr></thead>
+                  <tbody>
+                    {(promotionsData.coupons as Array<Record<string, unknown>>).length === 0 ? (
+                      <tr><td colSpan={3} className="text-center py-6 text-surface-400">{t.reports_no_data}</td></tr>
+                    ) : (promotionsData.coupons as Array<Record<string, unknown>>).map((c, i) => (
+                      <tr key={i}>
+                        <td className="font-mono font-medium">{String(c.code)}</td>
+                        <td className="text-right font-mono">{String(c.times_used)}</td>
+                        <td className="text-right font-mono text-red-500">{fmt(Number(c.total_discount))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* PRICE OVERRIDES */}
+          {tab === 'price-overrides' && priceOverridesData && (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                {[
+                  ['Lines Overridden', String(priceOverridesData.summary.count), ''],
+                  ['Total Extra Charged', fmt(priceOverridesData.summary.total_increase), 'text-emerald-600'],
+                  ['Total Given Away', fmt(Math.abs(priceOverridesData.summary.total_decrease)), 'text-red-600'],
+                  ['Net Effect', fmt(priceOverridesData.summary.net_diff), priceOverridesData.summary.net_diff >= 0 ? 'text-emerald-600' : 'text-red-600'],
+                ].map(([label, value, color], i) => (
+                  <div key={i} className="stat-card">
+                    <p className="stat-label">{label}</p>
+                    <p className={`stat-value ${color}`}>{value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="card">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>{t.reports_col_date}</th>
+                      <th>{t.reports_col_sale}</th>
+                      <th>{t.reports_col_product}</th>
+                      <th>{t.reports_col_cashier}</th>
+                      <th className="text-right">{t.reports_col_qty}</th>
+                      <th className="text-right">{t.reports_col_original_price}</th>
+                      <th className="text-right">{t.reports_col_new_price}</th>
+                      <th className="text-right">{t.reports_col_difference}</th>
+                      <th>{t.status}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {priceOverridesData.items.length === 0 ? (
+                      <tr><td colSpan={9} className="text-center py-8 text-surface-400">{t.reports_no_data}</td></tr>
+                    ) : priceOverridesData.items.map((row) => (
+                      <tr key={row.id}>
+                        <td className="text-sm">{new Date(row.created_at).toLocaleString()}</td>
+                        <td className="font-mono text-sm">{row.sale_number}</td>
+                        <td className="font-medium">{row.product_name}</td>
+                        <td className="text-sm">{row.cashier_name}</td>
+                        <td className="text-right font-mono">{Number(row.quantity).toFixed(2)}</td>
+                        <td className="text-right font-mono text-surface-500">{fmt(Number(row.original_price))}</td>
+                        <td className="text-right font-mono font-semibold text-primary-600">{fmt(Number(row.unit_price))}</td>
+                        <td className={`text-right font-mono font-semibold ${Number(row.total_diff) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {Number(row.total_diff) >= 0 ? '+' : ''}{fmt(Number(row.total_diff))}
+                        </td>
+                        <td><span className={`badge ${row.status === 'completed' ? 'badge-green' : 'badge-gray'}`}>{row.status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </PageContainer>
+  );
+}
