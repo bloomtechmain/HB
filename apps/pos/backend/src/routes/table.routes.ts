@@ -1,11 +1,10 @@
 import { Router } from 'express';
 import * as tableController from '../controllers/table.controller';
-import { authenticate, requireRole, requireFeature } from '../middleware/auth';
+import { authenticate, requireRole } from '../middleware/auth';
 
 const router = Router();
 
 router.use(authenticate);
-router.use(requireFeature('restaurant_mode'));
 
 router.get('/', tableController.list);
 router.post('/', requireRole('admin'), tableController.create);

@@ -193,11 +193,8 @@ function PaymentModal({
   isProcessing: boolean;
 }) {
   const t = useT();
-  const { hasFeature, settings } = useSettingsStore();
-  const canCredit = hasFeature('customers');
-  const methods: Array<'cash' | 'card' | 'mixed' | 'credit'> = canCredit
-    ? ['cash', 'card', 'mixed', 'credit']
-    : ['cash', 'card', 'mixed'];
+  const { settings } = useSettingsStore();
+  const methods: Array<'cash' | 'card' | 'mixed' | 'credit'> = ['cash', 'card', 'mixed', 'credit'];
   const [method, setMethod] = useState<'cash' | 'card' | 'mixed' | 'credit'>('cash');
   const [cashInput, setCashInput] = useState('');
   const [cardInput, setCardInput] = useState('');
@@ -243,7 +240,7 @@ function PaymentModal({
     <Modal isOpen={isOpen} onClose={onClose} title={t.pos_payment_title} size="sm">
       <div className="space-y-4">
         {/* Method tabs */}
-        <div className={`grid gap-2 ${canCredit ? 'grid-cols-4' : 'grid-cols-3'}`}>
+        <div className="grid gap-2 grid-cols-4">
           {methods.map((m) => (
             <button
               key={m}
@@ -304,7 +301,7 @@ function PaymentModal({
 
         {/* Cash/Card/Mixed: attaching a customer is optional — just tags the
             sale to a loyalty profile, no credit limit or balance involved. */}
-        {method !== 'credit' && canCredit && (
+        {method !== 'credit' && (
           <div>
             {selectedCustomer || showCustomerPicker ? (
               <div>
@@ -1130,7 +1127,7 @@ function BatchPickerModal({ state, onClose, onSelect }: {
 export default function POS() {
   const { user } = useAuthStore();
   const t = useT();
-  const { settings, hasFeature } = useSettingsStore();
+  const { settings } = useSettingsStore();
   const toast    = useToastStore();
   const pos      = usePOSStore();
   const restaurant = useRestaurantStore();
@@ -1139,7 +1136,7 @@ export default function POS() {
   // either running regular POS checkout or restaurant ordering, never both
   // at once (see the effect below, which forces the order type off/onto
   // 'retail' the instant this flips).
-  const restaurantModeOn = hasFeature('restaurant_mode') && !!settings?.restaurant_mode_enabled;
+  const restaurantModeOn = !!settings?.restaurant_mode_enabled;
   const [couponInput, setCouponInput] = useState('');
   const [applyingCoupon, setApplyingCoupon] = useState(false);
   const [markAsVat, setMarkAsVat] = useState(false);
@@ -1883,39 +1880,35 @@ export default function POS() {
               min="0" step="0.01"
             />
           </div>
-          {hasFeature('coupons') && (
-            <div>
-              <label className="label text-xs">Coupon Code</label>
-              {pos.couponCode ? (
-                <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                  <span className="text-sm font-mono font-semibold text-emerald-700">{pos.couponCode}</span>
-                  <button onClick={() => pos.clearCoupon()} className="text-xs text-red-400 hover:text-red-600 font-medium">
-                    Remove
-                  </button>
-                </div>
-              ) : (
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    className="input py-2 text-sm font-mono uppercase"
-                    value={couponInput}
-                    onChange={(e) => setCouponInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleApplyCoupon(); }}
-                    placeholder="e.g. SAVE10"
-                  />
-                  <button onClick={handleApplyCoupon} disabled={applyingCoupon || !couponInput.trim()} className="btn-secondary btn-sm shrink-0 disabled:opacity-40">
-                    {applyingCoupon ? '...' : 'Apply'}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-          {hasFeature('vat_invoice') && (
-            <label className="flex items-center gap-2 cursor-pointer pt-1">
-              <input type="checkbox" checked={markAsVat} onChange={(e) => setMarkAsVat(e.target.checked)} />
-              <span className="text-xs font-medium text-surface-600">Mark as VAT Invoice</span>
-            </label>
-          )}
+          <div>
+            <label className="label text-xs">Coupon Code</label>
+            {pos.couponCode ? (
+              <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                <span className="text-sm font-mono font-semibold text-emerald-700">{pos.couponCode}</span>
+                <button onClick={() => pos.clearCoupon()} className="text-xs text-red-400 hover:text-red-600 font-medium">
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="input py-2 text-sm font-mono uppercase"
+                  value={couponInput}
+                  onChange={(e) => setCouponInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleApplyCoupon(); }}
+                  placeholder="e.g. SAVE10"
+                />
+                <button onClick={handleApplyCoupon} disabled={applyingCoupon || !couponInput.trim()} className="btn-secondary btn-sm shrink-0 disabled:opacity-40">
+                  {applyingCoupon ? '...' : 'Apply'}
+                </button>
+              </div>
+            )}
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer pt-1">
+            <input type="checkbox" checked={markAsVat} onChange={(e) => setMarkAsVat(e.target.checked)} />
+            <span className="text-xs font-medium text-surface-600">Mark as VAT Invoice</span>
+          </label>
         </div>
 
         {/* Applied promotions chips */}

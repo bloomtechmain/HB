@@ -1,11 +1,10 @@
 import { Router } from 'express';
 import * as vatInvoiceController from '../controllers/vatInvoice.controller';
-import { authenticate, requireFeature } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 
 const router = Router();
 
 router.use(authenticate);
-router.use(requireFeature('vat_invoice'));
 
 router.get('/pending', vatInvoiceController.pending);
 router.post('/:saleId/generate', vatInvoiceController.generate);

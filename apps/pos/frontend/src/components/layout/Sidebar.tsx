@@ -3,7 +3,6 @@ import { useAuthStore } from '../../store/authStore';
 import { useLanguageStore } from '../../store/languageStore';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useT } from '../../i18n/translations';
-import { FeatureKey } from '../../types';
 
 interface SidebarProps {
   mobileOpen: boolean;
@@ -16,11 +15,11 @@ export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggl
   const { user, logout, hasPermission } = useAuthStore();
   const navigate = useNavigate();
   const { lang, toggleLang } = useLanguageStore();
-  const { settings, hasFeature } = useSettingsStore();
+  const { settings } = useSettingsStore();
   const t = useT();
   const hasShopBranding = Boolean(settings?.setup_completed && settings.business_name);
 
-  const navItems: Array<{ path: string; label: string; roles?: string[]; feature?: FeatureKey; requiresRestaurantMode?: boolean; icon: JSX.Element }> = [
+  const navItems: Array<{ path: string; label: string; roles?: string[]; requiresRestaurantMode?: boolean; icon: JSX.Element }> = [
     { path: '/dashboard', label: t.nav_dashboard, roles: ['admin', 'manager'], icon: (
       <svg className="w-4.5 h-4.5 w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
@@ -31,7 +30,7 @@ export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggl
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
       </svg>
     )},
-    { path: '/tables', label: t.nav_tables, roles: undefined, feature: 'restaurant_mode', requiresRestaurantMode: true, icon: (
+    { path: '/tables', label: t.nav_tables, roles: undefined, requiresRestaurantMode: true, icon: (
       <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 10h18M5 6h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2zM8 14v4m8-4v4" />
       </svg>
@@ -51,22 +50,22 @@ export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggl
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2m-4-1v8m0 0l-3-3m3 3l3-3" />
       </svg>
     )},
-    { path: '/vat-invoice', label: t.nav_vat_invoice, roles: undefined, feature: 'vat_invoice', icon: (
+    { path: '/vat-invoice', label: t.nav_vat_invoice, roles: undefined, icon: (
       <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
     )},
-    { path: '/promotions', label: t.nav_promotions, roles: ['admin', 'manager'], feature: 'promotions', icon: (
+    { path: '/promotions', label: t.nav_promotions, roles: ['admin', 'manager'], icon: (
       <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
       </svg>
     )},
-    { path: '/reports', label: t.nav_reports, roles: ['admin', 'manager'], feature: 'reports', icon: (
+    { path: '/reports', label: t.nav_reports, roles: ['admin', 'manager'], icon: (
       <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
       </svg>
     )},
-    { path: '/customers', label: t.nav_customers, roles: ['admin', 'manager'], feature: 'customers', icon: (
+    { path: '/customers', label: t.nav_customers, roles: ['admin', 'manager'], icon: (
       <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6 0a4 4 0 10-3.446-6" />
       </svg>
@@ -76,7 +75,7 @@ export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggl
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     )},
-    { path: '/users', label: t.nav_users, roles: ['admin'], feature: 'users', icon: (
+    { path: '/users', label: t.nav_users, roles: ['admin'], icon: (
       <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
       </svg>
@@ -97,7 +96,6 @@ export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggl
 
   const visibleItems = navItems.filter((item) => {
     if (item.roles && !item.roles.includes(user?.role_name || '')) return false;
-    if (item.feature && !hasFeature(item.feature)) return false;
     if (item.requiresRestaurantMode && !settings?.restaurant_mode_enabled) return false;
     return true;
   });
@@ -179,8 +177,8 @@ export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggl
               }`
             }
             style={({ isActive }) => isActive ? {
-              background: 'linear-gradient(90deg, rgba(2,132,199,0.85) 0%, rgba(14,165,233,0.65) 100%)',
-              boxShadow: '0 2px 8px rgba(2,132,199,0.35), inset 0 1px 0 rgba(255,255,255,0.1)',
+              background: 'linear-gradient(90deg, rgba(217,119,6,0.85) 0%, rgba(245,158,11,0.65) 100%)',
+              boxShadow: '0 2px 8px rgba(217,119,6,0.35), inset 0 1px 0 rgba(255,255,255,0.1)',
             } : {
               background: 'transparent',
             }}
@@ -208,7 +206,7 @@ export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggl
         <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg">
           <div
             className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0 shadow-sm"
-            style={{ background: 'linear-gradient(135deg, #38bdf8 0%, #0369a1 100%)' }}
+            style={{ background: 'linear-gradient(135deg, #fbbf24 0%, #b45309 100%)' }}
           >
             {initials}
           </div>

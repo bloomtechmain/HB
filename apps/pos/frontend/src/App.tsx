@@ -23,7 +23,6 @@ import TableGrid from './pages/TableGrid';
 export default function App() {
   useEffect(() => {
     useSettingsStore.getState().fetchSettings();
-    useSettingsStore.getState().fetchPlans();
   }, []);
 
   // Chrome/Edge change a focused <input type="number">'s value when the
@@ -54,38 +53,26 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route path="/pos" element={<POS />} />
           <Route path="/shifts" element={<Shifts />} />
-        </Route>
-        <Route element={<ProtectedRoute feature="vat_invoice" />}>
           <Route path="/vat-invoice" element={<VatInvoice />} />
         </Route>
-        <Route element={<ProtectedRoute feature="restaurant_mode" requiresRestaurantMode />}>
+        <Route element={<ProtectedRoute requiresRestaurantMode />}>
           <Route path="/tables" element={<TableGrid />} />
         </Route>
 
-        {/* Protected — Admin & Manager, always-available pages (Basic tier and up) */}
+        {/* Protected — Admin & Manager */}
         <Route element={<ProtectedRoute roles={['admin', 'manager']} />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/products" element={<Products />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/grn" element={<GRN />} />
-        </Route>
-
-        {/* Protected — Admin & Manager, plan-gated pages */}
-        <Route element={<ProtectedRoute roles={['admin', 'manager']} feature="promotions" />}>
           <Route path="/promotions" element={<Promotions />} />
-        </Route>
-        <Route element={<ProtectedRoute roles={['admin', 'manager']} feature="reports" />}>
           <Route path="/reports" element={<Reports />} />
-        </Route>
-        <Route element={<ProtectedRoute roles={['admin', 'manager']} feature="customers" />}>
           <Route path="/customers" element={<Customers />} />
         </Route>
 
         {/* Protected — Admin only */}
-        <Route element={<ProtectedRoute roles={['admin']} feature="users" />}>
-          <Route path="/users" element={<Users />} />
-        </Route>
         <Route element={<ProtectedRoute roles={['admin']} />}>
+          <Route path="/users" element={<Users />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/backup" element={<BackupPage />} />
         </Route>

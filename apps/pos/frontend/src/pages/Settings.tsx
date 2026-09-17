@@ -27,7 +27,7 @@ type SettingsSection = 'general' | 'profile' | 'security' | 'mode' | 'printing' 
 
 export default function SettingsPage() {
   const toast = useToastStore();
-  const { settings, setSettings, plans, fetchPlans, hasFeature } = useSettingsStore();
+  const { settings, setSettings } = useSettingsStore();
   const { user, setUser, sandbox, setToken } = useAuthStore();
   const [section, setSection] = useState<SettingsSection>('general');
   const [profile, setProfile] = useState<BusinessProfileValue>(EMPTY);
@@ -48,8 +48,6 @@ export default function SettingsPage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [savingCredentials, setSavingCredentials] = useState(false);
-
-  useEffect(() => { fetchPlans(); }, [fetchPlans]);
 
   useEffect(() => {
     if (user?.email) setLoginEmail(user.email);
@@ -214,21 +212,17 @@ export default function SettingsPage() {
 
   if (loading) return <PageLoader />;
 
-  const showMode = hasFeature('restaurant_mode');
-  const showKitchen = hasFeature('kot_printing') && settings?.restaurant_mode_enabled;
-  const showTerminals = hasFeature('multi_terminal');
-  const showTax = hasFeature('vat_invoice');
-  const showLoyalty = hasFeature('customers');
+  const showKitchen = settings?.restaurant_mode_enabled;
 
   const navItems: Array<{ key: SettingsSection; label: string; icon: string }> = [
     { key: 'general', label: 'General', icon: '⚙️' },
     { key: 'profile', label: 'Business Profile', icon: '🏬' },
     { key: 'security', label: 'Login & Security', icon: '🔒' },
-    ...(showMode ? [{ key: 'mode' as const, label: 'Operating Mode', icon: '🍽️' }] : []),
+    { key: 'mode', label: 'Operating Mode', icon: '🍽️' },
     { key: 'printing', label: 'Printing', icon: '🖨️' },
-    ...(showTerminals ? [{ key: 'terminals' as const, label: 'Multi-Terminal', icon: '🖥️' }] : []),
-    ...(showTax ? [{ key: 'tax' as const, label: 'Tax & VAT', icon: '🧾' }] : []),
-    ...(showLoyalty ? [{ key: 'loyalty' as const, label: 'Loyalty Program', icon: '🎁' }] : []),
+    { key: 'terminals', label: 'Multi-Terminal', icon: '🖥️' },
+    { key: 'tax', label: 'Tax & VAT', icon: '🧾' },
+    { key: 'loyalty', label: 'Loyalty Program', icon: '🎁' },
     { key: 'whatsapp', label: 'WhatsApp', icon: '💬' },
   ];
 
@@ -282,15 +276,6 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <div className="card p-6">
-                <h3 className="font-semibold text-surface-900">Plan</h3>
-                <p className="text-surface-500 text-sm mt-0.5 mb-3">
-                  Which features are available on this install.
-                </p>
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 text-primary-700 text-sm font-medium">
-                  {plans.find((p) => p.key === settings?.plan_key)?.name || settings?.plan_key}
-                </div>
-              </div>
             </>
           )}
 
@@ -366,7 +351,7 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {section === 'mode' && showMode && (
+          {section === 'mode' && (
             <div className={`card p-6 ${settings?.restaurant_mode_enabled ? 'ring-2 ring-primary-300' : ''}`}>
               <div className="flex items-center justify-between gap-4">
                 <div>
@@ -399,7 +384,7 @@ export default function SettingsPage() {
             </>
           )}
 
-          {section === 'terminals' && showTerminals && (
+          {section === 'terminals' && (
             <div className="card p-6">
               <MultiTerminalCard />
             </div>
@@ -408,7 +393,7 @@ export default function SettingsPage() {
           {/* Everything VAT/tax-related lives in this one place — the TIN
               number a Tax Invoice needs, and the named tax rates (VAT, NBT,
               etc.) available when generating one. */}
-          {section === 'tax' && showTax && (
+          {section === 'tax' && (
             <div className="card p-6 space-y-6">
               <div>
                 <h3 className="font-semibold text-surface-900">VAT &amp; Tax Settings</h3>
@@ -444,7 +429,7 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {section === 'loyalty' && showLoyalty && (
+          {section === 'loyalty' && (
             <div className="card p-6 space-y-6">
               <div>
                 <h3 className="font-semibold text-surface-900">Loyalty Program</h3>

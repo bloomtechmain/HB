@@ -2,7 +2,6 @@ import bcrypt from 'bcryptjs';
 import { query } from '../config/database';
 import { createError } from '../middleware/error';
 import { AuthPayload, User } from '../types';
-import { PLANS, DEFAULT_PLAN_KEY } from '../data/plans';
 import { markPasswordChanged } from '../utils/tokenRevocation';
 import { signToken } from '../utils/jwt';
 
@@ -31,22 +30,6 @@ export const createUser = async (data: {
 
   const existing = await query('SELECT id FROM users WHERE email = $1', [data.email]);
   if (existing.rows.length > 0) throw createError('Email already exists', 400);
-
-  const settingsResult = await query('SELECT plan_key FROM settings WHERE id = 1', []);
-  const planKey = settingsResult.rows[0]?.plan_key || DEFAULT_PLAN_KEY;
-  const maxUsers = PLANS[planKey]?.max_users;
-  if (maxUsers !== null && maxUsers !== undefined) {
-    const countResult = await query(
-      `SELECT COUNT(*) FROM users WHERE deleted_at IS NULL AND is_active = TRUE`,
-      []
-    );
-    if (parseInt(countResult.rows[0].count) >= maxUsers) {
-      throw createError(
-        `Your ${PLANS[planKey].name} plan allows up to ${maxUsers} staff account${maxUsers === 1 ? '' : 's'}. Upgrade in Settings to add more.`,
-        403
-      );
-    }
-  }
 
   const hashed = await bcrypt.hash(data.password, 10);
   const result = await query(

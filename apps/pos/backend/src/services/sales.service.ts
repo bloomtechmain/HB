@@ -6,7 +6,6 @@ import {
   Sale, CreateSalePayload, SaleReturn, ReturnSaleItemsPayload,
   CreateHeldSalePayload, CompleteHeldSalePayload,
 } from '../types';
-import { planIncludes, DEFAULT_PLAN_KEY } from '../data/plans';
 import { redeemCoupon } from './coupon.service';
 import { setTableStatus } from './table.service';
 
@@ -210,16 +209,8 @@ export const createSale = async (
     // sales additionally require one, and only credit sales touch their
     // credit limit / outstanding balance (both further below).
     let customer: any = null;
-    if (data.payment_method === 'credit') {
-      const settingsResult = await client.query('SELECT plan_key, custom_features FROM settings WHERE id = 1');
-      const planKey = settingsResult.rows[0]?.plan_key || DEFAULT_PLAN_KEY;
-      const customFeatures = settingsResult.rows[0]?.custom_features ?? null;
-      if (!planIncludes(planKey, 'customers', customFeatures)) {
-        throw createError('Credit sales require the Customers feature, which isn\'t included in your current plan.', 403);
-      }
-      if (!data.customer_id) {
-        throw createError('Select a customer for credit (pay later) sales', 400);
-      }
+    if (data.payment_method === 'credit' && !data.customer_id) {
+      throw createError('Select a customer for credit (pay later) sales', 400);
     }
     if (data.customer_id) {
       const customerResult = await client.query(
@@ -392,20 +383,6 @@ export const createHeldSale = async (
     }
     const shiftId = shiftResult.rows[0].id;
 
-    // A plain retail hold ("park this bill, start a new one") needs no
-    // special plan feature — it's basic till functionality. Only
-    // dine_in/takeaway/delivery are gated, since those imply Restaurant
-    // Mode; the frontend already only ever reaches this with a non-retail
-    // order_type when restaurant_mode_enabled is on, but this is the real
-    // enforcement point, not just a UI nicety.
-    if (data.order_type !== 'retail') {
-      const settingsResult = await client.query('SELECT plan_key, custom_features FROM settings WHERE id = 1');
-      const planKey = settingsResult.rows[0]?.plan_key || DEFAULT_PLAN_KEY;
-      const customFeatures = settingsResult.rows[0]?.custom_features ?? null;
-      if (!planIncludes(planKey, 'restaurant_mode', customFeatures)) {
-        throw createError('Restaurant Mode isn\'t included in your current plan.', 403);
-      }
-    }
 
     if (data.table_id) {
       const tableResult = await client.query('SELECT status FROM tables WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [data.table_id]);
@@ -541,14 +518,8 @@ export const completeHeldSale = async (
     // credit completions touch their credit limit / outstanding balance
     // (both further below). Mirrors createSale's unconditional load.
     const customerId = data.customer_id ?? sale.customer_id ?? null;
-    if (data.payment_method === 'credit') {
-      const settingsResult = await client.query('SELECT plan_key, custom_features FROM settings WHERE id = 1');
-      const planKey = settingsResult.rows[0]?.plan_key || DEFAULT_PLAN_KEY;
-      const customFeatures = settingsResult.rows[0]?.custom_features ?? null;
-      if (!planIncludes(planKey, 'customers', customFeatures)) {
-        throw createError('Credit sales require the Customers feature, which isn\'t included in your current plan.', 403);
-      }
-      if (!customerId) throw createError('Select a customer for credit (pay later) sales', 400);
+    if (data.payment_method === 'credit' && !customerId) {
+      throw createError('Select a customer for credit (pay later) sales', 400);
     }
     let customer: any = null;
     if (customerId) {

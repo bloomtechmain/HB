@@ -2,29 +2,31 @@ import { PoolClient } from 'pg';
 import { transaction, query } from '../config/database';
 import { createError } from '../middleware/error';
 import { SANDBOX_SCHEMA_STATEMENTS } from '../config/sandboxSchemaStatements';
-import { DEFAULT_PLAN_KEY } from '../data/plans';
 import { isSafeSchemaName } from '../config/database';
 
 // Starter data for a freshly-created sandbox — enough to click around and
 // try a sale immediately, not a full demo of every feature. Spans piece/kg/
-// litre units on purpose so the unit-of-measure feature is visible too.
+// litre units on purpose so the unit-of-measure feature is visible too
+// (Butter, sold by weight, is also a natural example for the Add-to-Cart
+// modal's custom line-total pricing field).
 const SANDBOX_CATEGORIES = [
-  { name: 'Groceries', color: '#22c55e' },
+  { name: 'Breads', color: '#92400e' },
+  { name: 'Cakes & Pastries', color: '#f59e0b' },
   { name: 'Beverages', color: '#3b82f6' },
-  { name: 'Household', color: '#f59e0b' },
+  { name: 'Dairy & Ingredients', color: '#22c55e' },
 ];
 const SANDBOX_PRODUCTS: Array<{
   name: string; sku: string; category: string; unit_type: string;
   cost_price: number; selling_price: number; current_stock: number;
 }> = [
-  { name: 'Basmati Rice 5kg', sku: 'SBX-001', category: 'Groceries', unit_type: 'piece', cost_price: 8.5, selling_price: 11.99, current_stock: 40 },
-  { name: 'Sugar', sku: 'SBX-002', category: 'Groceries', unit_type: 'kg', cost_price: 1.1, selling_price: 1.5, current_stock: 60 },
-  { name: 'Cooking Oil 1L', sku: 'SBX-003', category: 'Groceries', unit_type: 'litre', cost_price: 2.8, selling_price: 3.75, current_stock: 30 },
-  { name: 'Bottled Water 500ml', sku: 'SBX-004', category: 'Beverages', unit_type: 'piece', cost_price: 0.2, selling_price: 0.5, current_stock: 120 },
-  { name: 'Orange Juice 1L', sku: 'SBX-005', category: 'Beverages', unit_type: 'piece', cost_price: 1.6, selling_price: 2.4, current_stock: 25 },
-  { name: 'Instant Coffee', sku: 'SBX-006', category: 'Beverages', unit_type: 'piece', cost_price: 3.2, selling_price: 4.5, current_stock: 18 },
-  { name: 'Dish Soap', sku: 'SBX-007', category: 'Household', unit_type: 'piece', cost_price: 1.4, selling_price: 2.1, current_stock: 35 },
-  { name: 'Paper Towels', sku: 'SBX-008', category: 'Household', unit_type: 'piece', cost_price: 2.0, selling_price: 2.99, current_stock: 22 },
+  { name: 'White Bread Loaf', sku: 'SBX-001', category: 'Breads', unit_type: 'piece', cost_price: 0.9, selling_price: 1.5, current_stock: 40 },
+  { name: 'Sourdough Loaf', sku: 'SBX-002', category: 'Breads', unit_type: 'piece', cost_price: 1.8, selling_price: 3.0, current_stock: 20 },
+  { name: 'Butter Croissant', sku: 'SBX-003', category: 'Cakes & Pastries', unit_type: 'piece', cost_price: 0.5, selling_price: 1.2, current_stock: 60 },
+  { name: 'Cinnamon Roll', sku: 'SBX-004', category: 'Cakes & Pastries', unit_type: 'piece', cost_price: 0.6, selling_price: 1.5, current_stock: 45 },
+  { name: 'Chocolate Cake (Whole)', sku: 'SBX-005', category: 'Cakes & Pastries', unit_type: 'piece', cost_price: 8.0, selling_price: 15.0, current_stock: 8 },
+  { name: 'Butter', sku: 'SBX-006', category: 'Dairy & Ingredients', unit_type: 'kg', cost_price: 4.0, selling_price: 6.0, current_stock: 15 },
+  { name: 'Fresh Milk 1L', sku: 'SBX-007', category: 'Beverages', unit_type: 'litre', cost_price: 0.8, selling_price: 1.3, current_stock: 25 },
+  { name: 'Iced Coffee', sku: 'SBX-008', category: 'Beverages', unit_type: 'piece', cost_price: 1.0, selling_price: 2.5, current_stock: 30 },
 ];
 
 // Called from POST /auth/sandbox the first time this install switches into
@@ -67,7 +69,7 @@ export const ensureSandboxSchema = async (): Promise<string> => {
       [
         live?.business_name ? `${live.business_name} (Sandbox)` : 'My Sandbox Business',
         live?.business_type || '',
-        live?.plan_key || DEFAULT_PLAN_KEY,
+        live?.plan_key || 'basic',
         live?.custom_features ? JSON.stringify(live.custom_features) : null,
         live?.currency_code || 'USD',
         live?.currency_symbol || '$',

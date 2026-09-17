@@ -3,7 +3,6 @@ import { query, transaction } from '../config/database';
 import { createError } from '../middleware/error';
 import { Settings } from '../types';
 import { CATEGORY_TEMPLATES } from '../data/categoryTemplates';
-import { getPlanCatalog, DEFAULT_PLAN_KEY } from '../data/plans';
 
 // With NO valid token at all (the frontend calls this eagerly on every app
 // mount, including the login screen before any token exists), there's
@@ -15,7 +14,7 @@ export const GENERIC_DEFAULTS: Settings = {
   business_type: '',
   currency_code: 'USD',
   currency_symbol: '$',
-  plan_key: DEFAULT_PLAN_KEY,
+  plan_key: 'basic',
   setup_completed: false,
   restaurant_mode_enabled: false,
   loyalty_enabled: false,
@@ -36,9 +35,6 @@ export const getSettings = async (): Promise<Settings> => {
   return result.rows[0];
 };
 
-// plan_key is deliberately not accepted here — see data/plans.ts for what it
-// gates. Changing it is a separate, more deliberate action than a routine
-// settings save.
 export const updateSettings = async (
   data: Partial<{
     business_name: string;
@@ -109,7 +105,6 @@ export const listTemplates = () => {
   }));
 };
 
-export const listPlans = () => getPlanCatalog();
 
 // plan_key is not accepted here either, for the same reason as updateSettings
 // above.

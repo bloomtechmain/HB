@@ -1,11 +1,10 @@
 import { Router } from 'express';
 import * as taxRateController from '../controllers/taxRate.controller';
-import { authenticate, requireRole, requireFeature } from '../middleware/auth';
+import { authenticate, requireRole } from '../middleware/auth';
 
 const router = Router();
 
 router.use(authenticate);
-router.use(requireFeature('vat_invoice'));
 
 router.get('/', taxRateController.list);
 router.post('/', requireRole('admin'), taxRateController.create);

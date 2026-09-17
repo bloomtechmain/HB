@@ -3,16 +3,6 @@ import { query, transaction } from '../config/database';
 import { createError } from '../middleware/error';
 import { generateSKU, addBatch } from '../utils/helpers';
 import { Product, PaginatedResult } from '../types';
-import { planIncludes, DEFAULT_PLAN_KEY } from '../data/plans';
-
-const assertFifoAllowed = async () => {
-  const settingsResult = await query('SELECT plan_key, custom_features FROM settings WHERE id = 1', []);
-  const planKey = settingsResult.rows[0]?.plan_key || DEFAULT_PLAN_KEY;
-  const customFeatures = settingsResult.rows[0]?.custom_features ?? null;
-  if (!planIncludes(planKey, 'fifo_costing', customFeatures)) {
-    throw createError('FIFO / Batch-wise costing isn\'t included in your current plan. Upgrade in Settings to unlock it.', 403);
-  }
-};
 
 export const getProducts = async (params: {
   search?: string;
@@ -114,7 +104,6 @@ export const createProduct = async (data: Partial<Product>): Promise<Product> =>
   if (existing.rows.length > 0) throw createError('SKU already exists', 400);
 
   const costingMethod = data.costing_method === 'fifo' ? 'fifo' : 'weighted_average';
-  if (costingMethod === 'fifo') await assertFifoAllowed();
   const openingStock = data.current_stock || 0;
   const openingCost = data.cost_price || 0;
 
@@ -181,8 +170,6 @@ export const updateProduct = async (id: number, data: Partial<Product>): Promise
   const fields: string[] = [];
   const values: unknown[] = [];
   let i = 1;
-
-  if (data.costing_method === 'fifo') await assertFifoAllowed();
 
   // Editable going forward, not retroactive: switching costing_method never
   // rewrites past batches/avg_cost history, it only changes which one the

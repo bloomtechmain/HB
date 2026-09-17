@@ -3,7 +3,6 @@ import { PageContainer } from '../components/layout/Layout';
 import { Modal } from '../components/ui/Modal';
 import { PageLoader } from '../components/ui/LoadingSpinner';
 import { useToastStore } from '../store/toastStore';
-import { useSettingsStore } from '../store/settingsStore';
 import { CouponsManager } from '../components/settings/CouponsManager';
 import { Promotion, Category, Product } from '../types';
 import api from '../services/api';
@@ -19,7 +18,6 @@ const EMPTY: Partial<Promotion> = {
 export default function Promotions() {
   const t = useT();
   const toast = useToastStore();
-  const { hasFeature } = useSettingsStore();
   const [promos, setPromos] = useState<Promotion[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -140,11 +138,9 @@ export default function Promotions() {
         </div>
       )}
 
-      {hasFeature('coupons') && (
-        <div className="card p-6 mt-6">
-          <CouponsManager />
-        </div>
-      )}
+      <div className="card p-6 mt-6">
+        <CouponsManager />
+      </div>
 
       <Modal
         isOpen={modalOpen}

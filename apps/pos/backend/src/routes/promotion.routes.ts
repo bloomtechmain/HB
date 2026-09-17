@@ -1,11 +1,10 @@
 import { Router } from 'express';
 import * as promotionController from '../controllers/promotion.controller';
-import { authenticate, requireFeature, requirePermission } from '../middleware/auth';
+import { authenticate, requirePermission } from '../middleware/auth';
 
 const router = Router();
 
 router.use(authenticate);
-router.use(requireFeature('promotions'));
 
 router.get('/', promotionController.list);
 router.post('/apply', promotionController.apply);

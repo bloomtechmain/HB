@@ -21,7 +21,7 @@ const EMPTY: Partial<Product> = {
 export default function Products() {
   const t = useT();
   const toast = useToastStore();
-  const { hasFeature, settings } = useSettingsStore();
+  const { settings } = useSettingsStore();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -53,10 +53,10 @@ export default function Products() {
   useEffect(() => {
     api.get('/products/categories').then(r => setCategories(r.data.data));
     api.get('/products/brands').then(r => setBrands(r.data.data));
-    if (hasFeature('kot_printing') && settings?.restaurant_mode_enabled) {
+    if (settings?.restaurant_mode_enabled) {
       api.get('/kitchen-stations').then(r => setStations(r.data.data)).catch(() => {});
     }
-  }, [hasFeature, settings?.restaurant_mode_enabled]);
+  }, [settings?.restaurant_mode_enabled]);
 
   const openCreate = () => { setEditProduct(EMPTY); setIsEditing(false); setCustomUnit(false); setCostHistory([]); setModalOpen(true); };
   const openEdit = (p: Product) => {
@@ -259,7 +259,7 @@ export default function Products() {
               </button>
             </div>
           </div>
-          {hasFeature('kot_printing') && settings?.restaurant_mode_enabled && (
+          {settings?.restaurant_mode_enabled && (
             <div>
               <label className="label">Kitchen Station</label>
               <select className="input" value={editProduct.station_id || ''} onChange={(e) => setEditProduct(p => ({ ...p, station_id: parseInt(e.target.value) || undefined }))}>
@@ -304,16 +304,11 @@ export default function Products() {
               onChange={(e) => setEditProduct(p => ({ ...p, costing_method: e.target.value as Product['costing_method'] }))}
             >
               <option value="weighted_average">Weighted Average</option>
-              {hasFeature('fifo_costing') && <option value="fifo">FIFO / Batch-wise</option>}
+              <option value="fifo">FIFO / Batch-wise</option>
             </select>
             {isEditing && (
               <p className="text-xs text-surface-400 mt-1">
                 Applies going forward only — existing stock/cost history isn't rewritten. The next GRN receipt or sale uses the new method.
-              </p>
-            )}
-            {!hasFeature('fifo_costing') && (
-              <p className="text-xs text-surface-400 mt-1">
-                FIFO / Batch-wise costing is available on the Professional plan and up.
               </p>
             )}
           </div>

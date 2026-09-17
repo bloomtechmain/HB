@@ -33,10 +33,3 @@ export const completeSetup = async (req: AuthRequest, res: Response, next: NextF
     res.json({ success: true, data });
   } catch (err) { next(err); }
 };
-
-export const plans = async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const data = settingsService.listPlans();
-    res.json({ success: true, data });
-  } catch (err) { next(err); }
-};

@@ -10,7 +10,6 @@ const router = Router();
 // handles the no-token case.
 router.get('/', optionalAuthenticate, settingsController.get);
 router.get('/templates', settingsController.templates);
-router.get('/plans', settingsController.plans);
 router.put('/', authenticate, requireRole('admin'), settingsController.update);
 router.post('/complete-setup', authenticate, requireRole('admin'), settingsController.completeSetup);
 

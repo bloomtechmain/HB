@@ -1,11 +1,10 @@
 import { Router } from 'express';
 import * as couponController from '../controllers/coupon.controller';
-import { authenticate, requireRole, requireFeature } from '../middleware/auth';
+import { authenticate, requireRole } from '../middleware/auth';
 
 const router = Router();
 
 router.use(authenticate);
-router.use(requireFeature('coupons'));
 
 router.get('/', couponController.list);
 router.post('/', requireRole('admin'), couponController.create);

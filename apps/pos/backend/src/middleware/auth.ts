@@ -1,8 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken } from '../utils/jwt';
 import { AuthPayload } from '../types';
-import { query } from '../config/database';
-import { planIncludes, FeatureKey } from '../data/plans';
 import { runInSchema } from '../config/schemaContext';
 import { isTokenRevoked } from '../utils/tokenRevocation';
 
@@ -88,26 +86,6 @@ export const requireRole = (...roles: string[]) => {
       return;
     }
     next();
-  };
-};
-
-// Business-wide gate (unlike requireRole/requirePermission, which are
-// per-user from the JWT) — the subscription plan lives on `settings`, so
-// this is the one auth middleware that needs a DB read.
-export const requireFeature = (feature: FeatureKey) => {
-  return async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const result = await query('SELECT plan_key, custom_features FROM settings WHERE id = 1', []);
-      const planKey = result.rows[0]?.plan_key || 'basic';
-      const customFeatures = result.rows[0]?.custom_features ?? null;
-      if (!planIncludes(planKey, feature, customFeatures)) {
-        res.status(403).json({ success: false, message: `This feature isn't included in your current plan. Upgrade in Settings to unlock it.` });
-        return;
-      }
-      next();
-    } catch {
-      res.status(500).json({ success: false, message: 'Failed to verify plan' });
-    }
   };
 };
 

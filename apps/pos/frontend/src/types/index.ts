@@ -29,29 +29,6 @@ export interface Settings {
   updated_at: string;
 }
 
-export type FeatureKey =
-  | 'reports'
-  | 'users'
-  | 'promotions'
-  | 'coupons'
-  | 'customers'
-  | 'fifo_costing'
-  | 'multi_language'
-  | 'multi_currency'
-  | 'vat_invoice'
-  | 'restaurant_mode'
-  | 'kot_printing'
-  | 'multi_terminal';
-
-export interface Plan {
-  key: string;
-  name: string;
-  tagline: string;
-  max_users: number | null;
-  max_terminals: number | null;
-  features: FeatureKey[];
-}
-
 export interface TaxRate {
   id: number;
   name: string;

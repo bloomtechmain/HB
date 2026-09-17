@@ -16,7 +16,7 @@ const emptyForm = {
 
 export default function Customers() {
   const toast = useToastStore();
-  const { hasFeature, settings } = useSettingsStore();
+  const { settings } = useSettingsStore();
   const loyaltyOn = !!settings?.loyalty_enabled;
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -292,25 +292,23 @@ export default function Customers() {
             <label className="label">Notes</label>
             <input className="input" value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
-          {hasFeature('vat_invoice') && (
-            <div className="border-t border-surface-200 pt-3">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={form.is_vat_customer}
-                  onChange={(e) => setForm(f => ({ ...f, is_vat_customer: e.target.checked }))}
-                />
-                <span className="text-sm font-medium text-surface-700">VAT-registered customer</span>
-              </label>
-              {form.is_vat_customer && (
-                <div className="mt-2">
-                  <label className="label">VAT Registration Number <span className="text-red-500">*</span></label>
-                  <input className="input" value={form.vat_reg_no} onChange={(e) => setForm(f => ({ ...f, vat_reg_no: e.target.value }))} />
-                  <p className="text-xs text-surface-400 mt-1">Saved here so it auto-fills every VAT invoice generated for this customer.</p>
-                </div>
-              )}
-            </div>
-          )}
+          <div className="border-t border-surface-200 pt-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.is_vat_customer}
+                onChange={(e) => setForm(f => ({ ...f, is_vat_customer: e.target.checked }))}
+              />
+              <span className="text-sm font-medium text-surface-700">VAT-registered customer</span>
+            </label>
+            {form.is_vat_customer && (
+              <div className="mt-2">
+                <label className="label">VAT Registration Number <span className="text-red-500">*</span></label>
+                <input className="input" value={form.vat_reg_no} onChange={(e) => setForm(f => ({ ...f, vat_reg_no: e.target.value }))} />
+                <p className="text-xs text-surface-400 mt-1">Saved here so it auto-fills every VAT invoice generated for this customer.</p>
+              </div>
+            )}
+          </div>
         </div>
       </Modal>
 

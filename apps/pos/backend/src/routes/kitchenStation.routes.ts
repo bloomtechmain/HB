@@ -1,11 +1,10 @@
 import { Router } from 'express';
 import * as kitchenStationController from '../controllers/kitchenStation.controller';
-import { authenticate, requireRole, requireFeature } from '../middleware/auth';
+import { authenticate, requireRole } from '../middleware/auth';
 
 const router = Router();
 
 router.use(authenticate);
-router.use(requireFeature('kot_printing'));
 
 router.get('/', kitchenStationController.list);
 router.post('/', requireRole('admin'), kitchenStationController.create);

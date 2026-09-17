@@ -1,11 +1,10 @@
 import { Router } from 'express';
 import * as customerController from '../controllers/customer.controller';
-import { authenticate, requireFeature } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 
 const router = Router();
 
 router.use(authenticate);
-router.use(requireFeature('customers'));
 
 router.get('/', customerController.list);
 router.get('/:id', customerController.getById);
