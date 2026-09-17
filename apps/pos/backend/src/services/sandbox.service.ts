@@ -8,10 +8,16 @@ import { isSafeSchemaName } from '../config/database';
 // try a sale immediately, not a full demo of every feature. Spans piece/kg/
 // litre units on purpose so the unit-of-measure feature is visible too
 // (Butter, sold by weight, is also a natural example for the Add-to-Cart
-// modal's custom line-total pricing field).
+// modal's custom line-total pricing field). Categories cover a typical
+// bakery + cake shop counter, not just bread.
 const SANDBOX_CATEGORIES = [
   { name: 'Breads', color: '#92400e' },
-  { name: 'Cakes & Pastries', color: '#f59e0b' },
+  { name: 'Pastries', color: '#c2410c' },
+  { name: 'Celebration Cakes', color: '#db2777' },
+  { name: 'Cupcakes & Muffins', color: '#f59e0b' },
+  { name: 'Cookies & Biscuits', color: '#a16207' },
+  { name: 'Donuts', color: '#ec4899' },
+  { name: 'Savories', color: '#16a34a' },
   { name: 'Beverages', color: '#3b82f6' },
   { name: 'Dairy & Ingredients', color: '#22c55e' },
 ];
@@ -19,14 +25,37 @@ const SANDBOX_PRODUCTS: Array<{
   name: string; sku: string; category: string; unit_type: string;
   cost_price: number; selling_price: number; current_stock: number;
 }> = [
+  // Breads
   { name: 'White Bread Loaf', sku: 'SBX-001', category: 'Breads', unit_type: 'piece', cost_price: 0.9, selling_price: 1.5, current_stock: 40 },
   { name: 'Sourdough Loaf', sku: 'SBX-002', category: 'Breads', unit_type: 'piece', cost_price: 1.8, selling_price: 3.0, current_stock: 20 },
-  { name: 'Butter Croissant', sku: 'SBX-003', category: 'Cakes & Pastries', unit_type: 'piece', cost_price: 0.5, selling_price: 1.2, current_stock: 60 },
-  { name: 'Cinnamon Roll', sku: 'SBX-004', category: 'Cakes & Pastries', unit_type: 'piece', cost_price: 0.6, selling_price: 1.5, current_stock: 45 },
-  { name: 'Chocolate Cake (Whole)', sku: 'SBX-005', category: 'Cakes & Pastries', unit_type: 'piece', cost_price: 8.0, selling_price: 15.0, current_stock: 8 },
-  { name: 'Butter', sku: 'SBX-006', category: 'Dairy & Ingredients', unit_type: 'kg', cost_price: 4.0, selling_price: 6.0, current_stock: 15 },
-  { name: 'Fresh Milk 1L', sku: 'SBX-007', category: 'Beverages', unit_type: 'litre', cost_price: 0.8, selling_price: 1.3, current_stock: 25 },
-  { name: 'Iced Coffee', sku: 'SBX-008', category: 'Beverages', unit_type: 'piece', cost_price: 1.0, selling_price: 2.5, current_stock: 30 },
+  { name: 'Whole Wheat Loaf', sku: 'SBX-003', category: 'Breads', unit_type: 'piece', cost_price: 1.0, selling_price: 1.8, current_stock: 25 },
+  // Pastries
+  { name: 'Butter Croissant', sku: 'SBX-004', category: 'Pastries', unit_type: 'piece', cost_price: 0.5, selling_price: 1.2, current_stock: 60 },
+  { name: 'Cinnamon Roll', sku: 'SBX-005', category: 'Pastries', unit_type: 'piece', cost_price: 0.6, selling_price: 1.5, current_stock: 45 },
+  { name: 'Garlic Bread Roll', sku: 'SBX-006', category: 'Pastries', unit_type: 'piece', cost_price: 0.5, selling_price: 1.0, current_stock: 35 },
+  // Celebration Cakes
+  { name: 'Chocolate Cake (Whole)', sku: 'SBX-007', category: 'Celebration Cakes', unit_type: 'piece', cost_price: 8.0, selling_price: 15.0, current_stock: 8 },
+  { name: 'Red Velvet Cake (Whole)', sku: 'SBX-008', category: 'Celebration Cakes', unit_type: 'piece', cost_price: 9.0, selling_price: 16.5, current_stock: 6 },
+  { name: 'Vanilla Birthday Cake', sku: 'SBX-009', category: 'Celebration Cakes', unit_type: 'kg', cost_price: 7.0, selling_price: 13.0, current_stock: 10 },
+  { name: 'Black Forest Cake (Whole)', sku: 'SBX-010', category: 'Celebration Cakes', unit_type: 'piece', cost_price: 8.5, selling_price: 15.5, current_stock: 5 },
+  // Cupcakes & Muffins
+  { name: 'Vanilla Cupcake', sku: 'SBX-011', category: 'Cupcakes & Muffins', unit_type: 'piece', cost_price: 0.4, selling_price: 1.0, current_stock: 50 },
+  { name: 'Chocolate Muffin', sku: 'SBX-012', category: 'Cupcakes & Muffins', unit_type: 'piece', cost_price: 0.5, selling_price: 1.2, current_stock: 40 },
+  { name: 'Blueberry Muffin', sku: 'SBX-013', category: 'Cupcakes & Muffins', unit_type: 'piece', cost_price: 0.6, selling_price: 1.3, current_stock: 35 },
+  // Cookies & Biscuits
+  { name: 'Chocolate Chip Cookie', sku: 'SBX-014', category: 'Cookies & Biscuits', unit_type: 'piece', cost_price: 0.3, selling_price: 0.8, current_stock: 60 },
+  { name: 'Butter Biscuit (Pack)', sku: 'SBX-015', category: 'Cookies & Biscuits', unit_type: 'piece', cost_price: 0.8, selling_price: 1.5, current_stock: 40 },
+  // Donuts
+  { name: 'Glazed Donut', sku: 'SBX-016', category: 'Donuts', unit_type: 'piece', cost_price: 0.4, selling_price: 1.0, current_stock: 45 },
+  { name: 'Chocolate Sprinkle Donut', sku: 'SBX-017', category: 'Donuts', unit_type: 'piece', cost_price: 0.45, selling_price: 1.1, current_stock: 40 },
+  // Savories
+  { name: 'Chicken Puff', sku: 'SBX-018', category: 'Savories', unit_type: 'piece', cost_price: 0.6, selling_price: 1.3, current_stock: 35 },
+  { name: 'Vegetable Sandwich', sku: 'SBX-019', category: 'Savories', unit_type: 'piece', cost_price: 0.7, selling_price: 1.5, current_stock: 25 },
+  // Beverages
+  { name: 'Fresh Milk 1L', sku: 'SBX-020', category: 'Beverages', unit_type: 'litre', cost_price: 0.8, selling_price: 1.3, current_stock: 25 },
+  { name: 'Iced Coffee', sku: 'SBX-021', category: 'Beverages', unit_type: 'piece', cost_price: 1.0, selling_price: 2.5, current_stock: 30 },
+  // Dairy & Ingredients
+  { name: 'Butter', sku: 'SBX-022', category: 'Dairy & Ingredients', unit_type: 'kg', cost_price: 4.0, selling_price: 6.0, current_stock: 15 },
 ];
 
 // Called from POST /auth/sandbox the first time this install switches into
